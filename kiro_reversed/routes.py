@@ -352,6 +352,10 @@ async def _handle_forward_mode(request: Request) -> StreamingResponse:
     target = _pick_forward_target(request)
     ip = target.get("ip", "")
     host_header = target["host"]
+    if not ip:
+        message = f"MODE=forward 必须为 {host_header} 配置官方上游 IP"
+        logger.error(f"[FWD] {message}")
+        raise HTTPException(status_code=502, detail=message)
 
     # 保存请求
     try:

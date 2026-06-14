@@ -85,6 +85,8 @@ get_env_value() {
 
 mode="$(get_env_value MODE || true)"
 mode="${mode:-openai}"
+forward_target="$(get_env_value FORWARD_TARGET || true)"
+forward_target="${forward_target:-auto}"
 backend_api_url="$(get_env_value BACKEND_API_URL || true)"
 if [[ "$mode" == "openai" ]]; then
   if [[ -z "$backend_api_url" ]]; then
@@ -94,10 +96,36 @@ if [[ "$mode" == "openai" ]]; then
   if [[ "$backend_api_url" == http://127.0.0.1:* || "$backend_api_url" == https://127.0.0.1:* || "$backend_api_url" == http://localhost:* || "$backend_api_url" == https://localhost:* ]]; then
     fail "Docker 容器内不能用 127.0.0.1/localhost 访问宿主机后端，请改为: BACKEND_API_URL=http://host.docker.internal:<port>/v1"
   fi
-elif [[ "$mode" != "forward" ]]; then
-  fail "MODE 只能是 openai 或 forward，当前值: $mode"
+elif [[ "$mode" == "forward" ]]; then
+  missing_forward_ips=()
+  case "$forward_target" in
+    auto)
+      [[ -n "$(get_env_value KIRO_RUNTIME_IP || true)" ]] || missing_forward_ips+=("KIRO_RUNTIME_IP")
+      [[ -n "$(get_env_value KIRO_MANAGEMENT_IP || true)" ]] || missing_forward_ips+=("KIRO_MANAGEMENT_IP")
+      ;;
+    runtime)
+      [[ -n "$(get_env_value KIRO_RUNTIME_IP || true)" ]] || missing_forward_ips+=("KIRO_RUNTIME_IP")
+      ;;
+    management)
+      [[ -n "$(get_env_value KIRO_MANAGEMENT_IP || true)" ]] || missing_forward_ips+=("KIRO_MANAGEMENT_IP")
+      ;;
+    q)
+      [[ -n "$(get_env_value KIRO_Q_IP || true)" ]] || missing_forward_ips+=("KIRO_Q_IP")
+      ;;
+    random)
+      [[ -n "$(get_env_value KIRO_RUNTIME_IP || true)" ]] || missing_forward_ips+=("KIRO_RUNTIME_IP")
+      [[ -n "$(get_env_value KIRO_MANAGEMENT_IP || true)" ]] || missing_forward_ips+=("KIRO_MANAGEMENT_IP")
+      [[ -n "$(get_env_value KIRO_Q_IP || true)" ]] || missing_forward_ips+=("KIRO_Q_IP")
+      ;;
+    *)
+      fail "FORWARD_TARGET 只能是 auto/runtime/management/q/random，当前值: $forward_target"
+      ;;
+  esac
+  if [[ ${#missing_forward_ips[@]} -gt 0 ]]; then
+    fail "MODE=forward 必须配置对应官方上游 IP。当前 FORWARD_TARGET=$forward_target，缺少: ${missing_forward_ips[*]}"
+  fi
 else
-  warn "MODE=forward 会纯转发官方接口；如果宿主机 hosts 仍劫持 kiro.dev，请确保已配置可用的 KIRO_*_IP 或临时移除 hosts 劫持。"
+  fail "MODE 只能是 openai 或 forward，当前值: $mode"
 fi
 
 trust_certificate_if_possible() {

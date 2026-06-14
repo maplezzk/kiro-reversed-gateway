@@ -137,6 +137,18 @@ def _validate_url(value: str, field_name: str) -> list[str]:
     return errors
 
 
+def _required_forward_ip_envs(forward_target: str) -> tuple[str, ...]:
+    """Return required upstream IP environment variables for forward target."""
+    required_by_target: dict[str, tuple[str, ...]] = {
+        "auto": ("KIRO_RUNTIME_IP", "KIRO_MANAGEMENT_IP"),
+        "runtime": ("KIRO_RUNTIME_IP",),
+        "management": ("KIRO_MANAGEMENT_IP",),
+        "q": ("KIRO_Q_IP",),
+        "random": ("KIRO_RUNTIME_IP", "KIRO_MANAGEMENT_IP", "KIRO_Q_IP"),
+    }
+    return required_by_target[forward_target]
+
+
 def validate_startup_config(host: str, port: int, use_tls: bool) -> None:
     """Validate core startup configuration and exit before serving on errors."""
     errors: list[str] = []
@@ -177,10 +189,15 @@ def validate_startup_config(host: str, port: int, use_tls: bool) -> None:
             errors.append(f"TLS 私钥不存在: {Path(KEY_FILE).resolve()}")
 
     if mode == "forward":
-        logger.warning(
-            "MODE=forward 会纯转发官方接口。若 /etc/hosts 仍劫持 kiro.dev 到本机，"
-            "需要配置可用的 KIRO_*_IP 或临时移除 hosts 劫持，否则可能回环。"
-        )
+        missing_forward_ips = [
+            name for name in _required_forward_ip_envs(forward_target)
+            if not os.getenv(name, "").strip()
+        ]
+        if missing_forward_ips:
+            errors.append(
+                "MODE=forward 必须配置对应官方上游 IP；"
+                f"当前 FORWARD_TARGET={forward_target!r}，缺少: {', '.join(missing_forward_ips)}"
+            )
 
     if warnings:
         for warning in warnings:
