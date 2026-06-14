@@ -18,9 +18,13 @@ Usage: ./scripts/start.sh [options]
 Options:
   --host HOST       监听地址，默认读取 .env 或 0.0.0.0
   --port PORT       监听端口，默认 443
-  --no-tls          使用 HTTP 调试模式
+  --no-tls          使用 HTTP 调试模式；不会生成或使用 TLS 证书
   --skip-install    跳过 pip install -r requirements.txt
   -h, --help        显示帮助
+
+TLS:
+  默认 TLS 模式下，如果 certs/cert.pem 或 certs/key.pem 不存在，脚本会自动生成一次。
+  已存在证书时不会重新生成。
 
 Environment overrides:
   PYTHON_BIN=python3.12

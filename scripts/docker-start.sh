@@ -19,6 +19,7 @@ Options:
 Notes:
   - 如果后端跑在宿主机，.env 里 BACKEND_API_URL 应使用 http://host.docker.internal:<port>/v1
   - /etc/hosts 和证书信任仍然在宿主机配置
+  - 如果 certs/cert.pem 或 certs/key.pem 不存在，脚本会自动生成一次；已存在时不会重新生成
 EOF
 }
 
