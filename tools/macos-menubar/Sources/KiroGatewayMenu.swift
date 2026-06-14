@@ -64,10 +64,11 @@ final class KiroGatewayMenuApp: NSObject, NSApplicationDelegate {
             let docker = parsed["DOCKER"] ?? "unknown"
             let modeLabel = mode == "forward" ? "官方直连" : (mode == "openai" ? "OpenAI 代理" : mode)
             let statusText = "当前: \(modeLabel) / Docker: \(docker)"
-            statusItem.button?.title = mode == "forward" ? "Kiro F" : "Kiro O"
+            statusItem.button?.title = mode == "forward" ? "官方直连" : "OpenAI代理"
             rebuildMenu(statusText: statusText)
         } else {
-            statusItem.button?.title = "Kiro !"
+            statusItem.button?.title = "Kiro异常"
+
             rebuildMenu(statusText: "状态读取失败")
         }
     }
@@ -87,7 +88,8 @@ final class KiroGatewayMenuApp: NSObject, NSApplicationDelegate {
     }
 
     private func runProjectScript(_ command: String, successTitle: String) {
-        statusItem.button?.title = "Kiro …"
+        statusItem.button?.title = "切换中…"
+
         let result = Shell.run("cd \(Shell.quote(projectPath)) && \(command)")
         if result.exitCode == 0 {
             showAlert(title: successTitle, message: tail(result.output))

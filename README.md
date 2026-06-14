@@ -110,6 +110,12 @@ BACKEND_API_URL=http://host.docker.internal:<port>/v1
 open "tools/macos-menubar/build/Kiro Gateway Menu.app"
 ```
 
+菜单栏标题会直接显示当前状态：
+
+- `OpenAI代理`
+- `官方直连`
+- `Kiro异常`
+
 菜单功能：
 
 - 切换到 OpenAI 代理模式：写入 `MODE=openai`，然后重启 Docker 服务
