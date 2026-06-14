@@ -141,19 +141,79 @@ open -a Kiro
 
 ---
 
-## Docker 使用要点
+## Docker 服务化
 
-可以 Docker 化，但要注意：
+如果你想把代理作为后台服务跑，推荐用 Docker Compose。
 
-- `/etc/hosts` 要改宿主机，不是容器
-- 宿主机需要映射 `443:443`
-- 如果后端跑在宿主机，容器内不能用 `127.0.0.1` 访问它，要用：
+### 1. 准备 `.env`
+
+```bash
+cp .env.example .env
+```
+
+如果你的后端跑在宿主机，`.env` 里不要写 `127.0.0.1`，要写：
 
 ```env
 BACKEND_API_URL=http://host.docker.internal:<port>/v1
+BACKEND_API_KEY=<your-api-key>
 ```
 
-- 证书文件可以挂载进容器，但信任证书仍然要在宿主机执行
+原因：容器内的 `127.0.0.1` 指的是容器自己，不是宿主机。
+
+### 2. 准备证书
+
+如果还没有证书，可以先用一键脚本生成：
+
+```bash
+./scripts/start.sh --help
+./scripts/start.sh --no-tls --port 8443
+```
+
+或者手动生成，技术细节见 [`docs/TECHNICAL_DETAILS.md`](docs/TECHNICAL_DETAILS.md)。
+
+生成后在宿主机信任证书：
+
+```bash
+sudo security add-trusted-cert -d -r trustRoot \
+  -k /Library/Keychains/System.keychain certs/cert.pem
+```
+
+### 3. 启动容器
+
+```bash
+docker compose up -d --build
+```
+
+查看日志：
+
+```bash
+docker compose logs -f
+```
+
+停止服务：
+
+```bash
+docker compose down
+```
+
+### 4. 网络注意事项
+
+- `/etc/hosts` 仍然改宿主机，不是容器
+- 宿主机仍然需要：
+
+```text
+127.0.0.1 runtime.us-east-1.kiro.dev
+127.0.0.1 management.us-east-1.kiro.dev
+```
+
+- `docker-compose.yml` 会映射：
+
+```text
+443:8443
+```
+
+- 证书挂载到容器，但信任证书仍然在宿主机执行
+- `debug_logs/` 会挂载出来，方便排障
 
 ---
 

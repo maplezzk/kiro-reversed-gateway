@@ -683,3 +683,154 @@ NO_TLS=true PORT=8443 ./scripts/start.sh
 sudo security add-trusted-cert -d -r trustRoot \
   -k /Library/Keychains/System.keychain certs/cert.pem
 ```
+
+---
+
+## 18. Docker 服务化部署
+
+项目包含：
+
+```text
+Dockerfile
+docker-compose.yml
+.dockerignore
+```
+
+### 18.1 镜像行为
+
+`Dockerfile` 使用 `python:3.12-slim`：
+
+- 工作目录：`/app`
+- 安装 `requirements.txt`
+- 暴露端口：`443`、`8443`
+- 默认命令：`python main.py --port 443`
+- 使用非 root 用户 `kiro` 运行应用
+
+### 18.2 Compose 行为
+
+`docker-compose.yml` 默认：
+
+```yaml
+ports:
+  - "443:8443"
+volumes:
+  - ./certs:/app/certs:ro
+  - ./debug_logs:/app/debug_logs
+```
+
+也就是说：
+
+- 宿主机 `443` 会转到容器 `8443`
+- TLS 证书从宿主机只读挂载
+- debug 日志写回宿主机目录
+
+### 18.3 后端在宿主机时的 URL
+
+容器里的 `127.0.0.1` 是容器自身，不是 macOS 宿主机。
+
+所以如果后端跑在宿主机，应配置：
+
+```env
+BACKEND_API_URL=http://host.docker.internal:<port>/v1
+```
+
+不要配置：
+
+```env
+BACKEND_API_URL=http://127.0.0.1:<port>/v1
+```
+
+### 18.4 hosts 仍然改宿主机
+
+Kiro IDE 运行在宿主机，所以 DNS 劫持仍然发生在宿主机：
+
+```text
+127.0.0.1 runtime.us-east-1.kiro.dev
+127.0.0.1 management.us-east-1.kiro.dev
+```
+
+请求路径是：
+
+```text
+Kiro IDE -> 宿主机 127.0.0.1:443 -> Docker 端口映射 -> 容器 8443
+```
+
+### 18.5 证书信任仍然在宿主机
+
+容器只负责提供 HTTPS 服务，macOS 信任证书仍然要在宿主机执行：
+
+```bash
+sudo security add-trusted-cert -d -r trustRoot \
+  -k /Library/Keychains/System.keychain certs/cert.pem
+```
+
+### 18.6 常用命令
+
+构建并启动：
+
+```bash
+docker compose up -d --build
+```
+
+查看日志：
+
+```bash
+docker compose logs -f
+```
+
+重启：
+
+```bash
+docker compose restart
+```
+
+停止：
+
+```bash
+docker compose down
+```
+
+进入容器：
+
+```bash
+docker compose exec kiro-reversed-gateway sh
+```
+
+### 18.7 常见问题
+
+#### 容器启动后 Kiro 连不上
+
+检查：
+
+```bash
+docker compose ps
+docker compose logs -f
+sudo lsof -i :443
+```
+
+确认宿主机 `/etc/hosts` 已配置 Kiro 域名。
+
+#### 后端连接失败
+
+如果后端跑在宿主机，确认使用：
+
+```env
+BACKEND_API_URL=http://host.docker.internal:<port>/v1
+```
+
+#### 证书报错
+
+确认：
+
+- `./certs/cert.pem` 存在
+- `./certs/key.pem` 存在
+- `cert.pem` 已在 macOS 系统钥匙串信任
+
+#### debug_logs 权限问题
+
+Compose 会把 `./debug_logs` 挂载到容器。若出现权限问题，可在宿主机执行：
+
+```bash
+mkdir -p debug_logs
+chmod 777 debug_logs
+```
