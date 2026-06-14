@@ -180,6 +180,27 @@ sudo security add-trusted-cert -d -r trustRoot \
 
 ### 3. 启动容器
 
+推荐使用脚本：
+
+```bash
+./scripts/docker-start.sh
+```
+
+常用参数：
+
+```bash
+# 重新构建并启动，默认行为
+./scripts/docker-start.sh
+
+# 不重新构建，直接启动
+./scripts/docker-start.sh --no-build
+
+# 启动后跟随日志
+./scripts/docker-start.sh --logs
+```
+
+等价 Docker Compose 命令：
+
 ```bash
 docker compose up -d --build
 ```
@@ -190,13 +211,27 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-停止服务：
+### 4. 停止容器
+
+推荐使用脚本：
+
+```bash
+./scripts/docker-stop.sh
+```
+
+如果需要同时删除匿名卷：
+
+```bash
+./scripts/docker-stop.sh --volumes
+```
+
+等价 Docker Compose 命令：
 
 ```bash
 docker compose down
 ```
 
-### 4. 网络注意事项
+### 5. 网络注意事项
 
 - `/etc/hosts` 仍然改宿主机，不是容器
 - 宿主机仍然需要：

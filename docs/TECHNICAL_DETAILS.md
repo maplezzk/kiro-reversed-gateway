@@ -766,37 +766,62 @@ sudo security add-trusted-cert -d -r trustRoot \
 
 ### 18.6 常用命令
 
-构建并启动：
+推荐脚本：
 
 ```bash
+# 构建并启动
+./scripts/docker-start.sh
+
+# 不重新构建，直接启动
+./scripts/docker-start.sh --no-build
+
+# 启动后跟随日志
+./scripts/docker-start.sh --logs
+
+# 停止服务
+./scripts/docker-stop.sh
+
+# 停止服务并删除匿名卷
+./scripts/docker-stop.sh --volumes
+```
+
+等价 Docker Compose 命令：
+
+```bash
+# 构建并启动
 docker compose up -d --build
-```
 
-查看日志：
-
-```bash
+# 查看日志
 docker compose logs -f
-```
 
-重启：
-
-```bash
+# 重启
 docker compose restart
-```
 
-停止：
-
-```bash
+# 停止
 docker compose down
-```
 
-进入容器：
-
-```bash
+# 进入容器
 docker compose exec kiro-reversed-gateway sh
 ```
 
-### 18.7 常见问题
+### 18.7 脚本行为
+
+`./scripts/docker-start.sh` 会：
+
+- 检查 Docker 和 `docker compose` 是否可用
+- 检查 `.env` 是否存在；不存在时从 `.env.example` 复制并退出
+- 创建 `certs/` 和 `debug_logs/`
+- 没有证书时自动生成自签名证书
+- 执行 `docker compose up -d --build`
+- 可选 `--logs` 跟随日志
+
+`./scripts/docker-stop.sh` 会：
+
+- 检查 Docker 和 `docker compose` 是否可用
+- 执行 `docker compose down`
+- 可选 `--volumes` 删除匿名卷
+
+### 18.8 常见问题
 
 #### 容器启动后 Kiro 连不上
 
