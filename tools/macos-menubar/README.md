@@ -28,6 +28,7 @@ open "tools/macos-menubar/build/Kiro Gateway Menu.app"
 
 ```text
 Kiro：OpenAI
+Kiro：混合
 Kiro：直连
 Kiro：异常
 ```
@@ -35,6 +36,7 @@ Kiro：异常
 ## 功能
 
 - 切换到 OpenAI 代理模式
+- 切换到混合模式
 - 切换到官方直连模式
 - 重启 Docker 服务
 - 查看 Docker 日志

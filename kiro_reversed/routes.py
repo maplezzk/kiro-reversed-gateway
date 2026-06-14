@@ -19,7 +19,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse, Response
 from loguru import logger
 
-from kiro_reversed.config import MODE, PROFILE_ARN
+from kiro_reversed.config import MODE, PROFILE_ARN, CUSTOM_MODEL_PREFIX
 from kiro_reversed.forward import KIRO_FORWARD_HOSTS, KIRO_FORWARD_TARGETS
 from kiro_reversed.models import KiroRequest
 from kiro_reversed.kiro_to_openai import convert_kiro_to_openai
@@ -77,27 +77,9 @@ async def root():
     }
 
 
-async def _build_backend_models_response() -> Response:
-    """Build Kiro-compatible models response from backend OpenAI /models."""
-    backend_models = await fetch_backend_models()
-    models = []
-    for item in backend_models:
-        model_id = item.get("id") or item.get("model") or item.get("modelId")
-        if not model_id:
-            continue
-        models.append({
-            "modelId": model_id,
-            "modelName": item.get("modelName") or item.get("name") or model_id,
-            "description": item.get("description") or f"Custom backend model: {model_id}",
-            "modelProvider": item.get("modelProvider") or "DEFAULT",
-            "rateMultiplier": item.get("rateMultiplier") or 1,
-            "rateUnit": item.get("rateUnit") or "request",
-            "tokenLimits": {
-                "maxInputTokens": item.get("maxInputTokens") or item.get("context_length") or 200000,
-                "maxOutputTokens": item.get("maxOutputTokens") or 8192,
-            },
-        })
-    _save_log("models", "list_available_models", {"count": len(models), "models": models})
+def _build_models_response(models: list[dict], log_stage: str = "list_available_models") -> Response:
+    """Build a Kiro-compatible model list response."""
+    _save_log("models", log_stage, {"count": len(models), "models": models})
     return Response(
         content=json.dumps({"models": models}, ensure_ascii=False),
         media_type="application/json",
@@ -107,6 +89,38 @@ async def _build_backend_models_response() -> Response:
             "expires": "0",
         },
     )
+
+
+async def _build_backend_model_items(prefix_custom: bool = False) -> list[dict]:
+    """Build Kiro-compatible model items from backend OpenAI /models."""
+    backend_models = await fetch_backend_models()
+    models = []
+    for item in backend_models:
+        raw_model_id = item.get("id") or item.get("model") or item.get("modelId")
+        if not raw_model_id:
+            continue
+        model_id = raw_model_id
+        if prefix_custom and not raw_model_id.startswith(CUSTOM_MODEL_PREFIX):
+            model_id = f"{CUSTOM_MODEL_PREFIX}{raw_model_id}"
+        models.append({
+            "modelId": model_id,
+            "modelName": model_id if prefix_custom else item.get("modelName") or item.get("name") or model_id,
+            "description": item.get("description") or f"Custom backend model: {raw_model_id}",
+            "modelProvider": item.get("modelProvider") or ("CUSTOM" if prefix_custom else "DEFAULT"),
+            "rateMultiplier": item.get("rateMultiplier") or 1,
+            "rateUnit": item.get("rateUnit") or "request",
+            "tokenLimits": {
+                "maxInputTokens": item.get("maxInputTokens") or item.get("context_length") or 200000,
+                "maxOutputTokens": item.get("maxOutputTokens") or 8192,
+            },
+        })
+    return models
+
+
+async def _build_backend_models_response() -> Response:
+    """Build Kiro-compatible models response from backend OpenAI /models."""
+    models = await _build_backend_model_items(prefix_custom=False)
+    return _build_models_response(models)
 
 
 def _get_stable_next_month_reset_timestamp() -> int:
@@ -253,10 +267,19 @@ async def list_available_models(request: Request):
     """Kiro/OpenAI models endpoint.
 
     MODE=forward: 纯转发官方 /ListAvailableModels。
+    MODE=hybrid : 合并官方 Kiro models + custom/* 后端 models。
     MODE=openai : 读取后端 OpenAI /models，并转换成 Kiro 的 models 格式。
     """
     if MODE == "forward":
         return await _handle_forward_mode(request)
+    if MODE == "hybrid":
+        try:
+            return await _build_hybrid_models_response(request)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"获取混合 models 失败: {e}")
+            raise HTTPException(status_code=502, detail=f"获取混合 models 失败: {e}")
 
     try:
         return await _build_backend_models_response()
@@ -309,6 +332,8 @@ def _resolve_forward_target_name(request: Request | None = None) -> str:
     import os
 
     target_name = os.getenv("FORWARD_TARGET", "auto").strip().lower()
+    if MODE == "hybrid" and request is not None:
+        target_name = "auto"
     if target_name in ("", "auto") and request is not None:
         request_host = _get_request_host(request)
         if request_host in KIRO_FORWARD_HOSTS:
@@ -339,6 +364,96 @@ def _pick_forward_target(request: Request | None = None) -> dict:
     return KIRO_FORWARD_TARGETS[target_name]
 
 
+def _prepare_forward_upstream(request: Request, raw_body: bytes) -> tuple[str, dict, str, str]:
+    """Prepare upstream URL and headers for official Kiro forwarding."""
+    target = _pick_forward_target(request)
+    ip = target.get("ip", "")
+    host_header = target["host"]
+    if not ip:
+        message = f"MODE=forward 必须为 {host_header} 配置官方上游 IP"
+        logger.error(f"[FWD] {message}")
+        raise HTTPException(status_code=502, detail=message)
+
+    fwd_headers = {}
+    for k, v in request.headers.items():
+        if k.lower() in ("host", "content-length", "connection"):
+            continue
+        fwd_headers[k] = v
+    fwd_headers["host"] = host_header
+
+    target_url = f"https://{ip}{request.url.path}"
+    if request.url.query:
+        target_url += f"?{request.url.query}"
+
+    logger.info(
+        f"[FWD] -> {host_header}({ip}){request.url.path} "
+        f"({len(raw_body)} bytes, upstream_host={ip})"
+    )
+    return target_url, fwd_headers, host_header, ip
+
+
+async def _fetch_forward_body(request: Request, raw_body: bytes | None = None) -> tuple[int, dict, bytes]:
+    """Fetch a full official Kiro upstream response body."""
+    body = await request.body() if raw_body is None else raw_body
+    target_url, fwd_headers, _, ip = _prepare_forward_upstream(request, body)
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0),
+        verify=False if ip else True,
+        follow_redirects=False,
+        trust_env=False,
+    ) as client:
+        response = await client.request(
+            method=request.method,
+            url=target_url,
+            headers=fwd_headers,
+            content=body,
+        )
+        out_headers = {
+            k: v for k, v in response.headers.items()
+            if k.lower() not in ("content-length", "transfer-encoding", "connection")
+        }
+        return response.status_code, out_headers, response.content
+
+
+async def _build_official_model_items(request: Request) -> list[dict]:
+    """Fetch official Kiro model items from upstream."""
+    status_code, _, body = await _fetch_forward_body(request)
+    if status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail=f"获取官方 Kiro models 失败: upstream status={status_code}",
+        )
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail=f"官方 Kiro models 响应不是 JSON: {exc}") from exc
+
+    if isinstance(data, dict) and isinstance(data.get("models"), list):
+        return [item for item in data["models"] if isinstance(item, dict)]
+    if isinstance(data, dict) and isinstance(data.get("data"), list):
+        return [item for item in data["data"] if isinstance(item, dict)]
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    return []
+
+
+async def _build_hybrid_models_response(request: Request) -> Response:
+    """Build merged official + custom model list for hybrid mode."""
+    official_models = await _build_official_model_items(request)
+    custom_models = await _build_backend_model_items(prefix_custom=True)
+    official_ids = {item.get("modelId") or item.get("id") for item in official_models}
+    merged = list(official_models)
+    for item in custom_models:
+        if item.get("modelId") in official_ids:
+            logger.warning(f"跳过与官方模型重名的自定义模型: {item.get('modelId')}")
+            continue
+        merged.append(item)
+    return _build_models_response(
+        merged,
+        log_stage="hybrid_list_available_models",
+    )
+
+
 async def _handle_forward_mode(request: Request) -> StreamingResponse:
     """
     纯转发模式: Kiro IDE 的请求直连 Kiro 真实 API 真实 IP.
@@ -349,13 +464,7 @@ async def _handle_forward_mode(request: Request) -> StreamingResponse:
     ts = int(time.time() * 1000) % 100000
     conv_id = f"fwd_{ts}"
 
-    target = _pick_forward_target(request)
-    ip = target.get("ip", "")
-    host_header = target["host"]
-    if not ip:
-        message = f"MODE=forward 必须为 {host_header} 配置官方上游 IP"
-        logger.error(f"[FWD] {message}")
-        raise HTTPException(status_code=502, detail=message)
+    target_url, fwd_headers, host_header, ip = _prepare_forward_upstream(request, raw_body)
 
     # 保存请求
     try:
@@ -372,23 +481,6 @@ async def _handle_forward_mode(request: Request) -> StreamingResponse:
         _save_log(conv_id, "forward_req", req_log)
     except Exception as e:
         logger.warning(f"保存 forward request 失败: {e}")
-
-    # 透传 headers (只改 host)
-    fwd_headers = {}
-    for k, v in request.headers.items():
-        if k.lower() in ("host", "content-length", "connection"):
-            continue
-        fwd_headers[k] = v
-    fwd_headers["host"] = host_header
-
-    url_host = ip or host_header
-    target_url = f"https://{url_host}{request.url.path}"
-    if request.url.query:
-        target_url += f"?{request.url.query}"
-    logger.info(
-        f"[FWD] -> {host_header}({ip}){request.url.path} "
-        f"({len(raw_body)} bytes, upstream_host={url_host})"
-    )
 
     client = httpx.AsyncClient(
         timeout=httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0),
@@ -447,9 +539,10 @@ async def mcp_proxy(request: Request):
     """Kiro MCP endpoint.
 
     MODE=forward: 透传官方 MCP。
+    MODE=hybrid : 透传官方 MCP，保证官方模型能力完整。
     MODE=openai : 直接返回空 MCP tools 列表，避免 Kiro IDE 加载官方 MCP 工具。
     """
-    if MODE == "forward":
+    if MODE in ("forward", "hybrid"):
         return await _handle_forward_mode(request)
 
     request_id = "tools_list"
@@ -585,9 +678,24 @@ async def generate_assistant_response(request: Request):
 
     根据 MODE 环境变量选择:
       MODE=forward → 纯转发到 Kiro 真实 API，不解析 body
+      MODE=hybrid  → custom/* 模型走自定义后端，其它模型走官方 Kiro
       MODE=openai  → 解析 Kiro 请求并转换到自定义后端
     """
     if MODE == "forward":
+        return await _handle_forward_mode(request)
+
+    if MODE == "hybrid":
+        try:
+            request_json = await request.json()
+            request_data = KiroRequest.model_validate(request_json)
+        except Exception as e:
+            logger.warning(f"Kiro 请求解析失败: {e}")
+            raise HTTPException(status_code=400, detail=f"Kiro 请求解析失败: {e}")
+        model_id = request_data.conversationState.currentMessage.userInputMessage.modelId
+        if model_id.startswith(CUSTOM_MODEL_PREFIX):
+            logger.info(f"[HYBRID] custom model -> OpenAI backend: {model_id}")
+            return await _handle_openai_mode(request, request_data)
+        logger.info(f"[HYBRID] official model -> Kiro forward: {model_id}")
         return await _handle_forward_mode(request)
 
     try:
@@ -632,10 +740,12 @@ async def catch_all(request: Request, path: str):
 
     if "ListAvailableModels" in amz_target:
         try:
+            if MODE == "hybrid":
+                return await _build_hybrid_models_response(request)
             return await _build_backend_models_response()
         except Exception as e:
-            logger.error(f"x-amz-target 获取后端 models 失败: {e}")
-            raise HTTPException(status_code=502, detail=f"获取后端 models 失败: {e}")
+            logger.error(f"x-amz-target 获取 models 失败: {e}")
+            raise HTTPException(status_code=502, detail=f"获取 models 失败: {e}")
     if "GetUsageLimits" in amz_target:
         return await _build_usage_limits_response(request)
     if "ListAvailableProfiles" in amz_target or "GetProfile" in amz_target:
@@ -643,10 +753,12 @@ async def catch_all(request: Request, path: str):
 
     if "model" in request_path.lower():
         try:
+            if MODE == "hybrid":
+                return await _build_hybrid_models_response(request)
             return await _build_backend_models_response()
         except Exception as e:
-            logger.error(f"catch-all 获取后端 models 失败: {e}")
-            raise HTTPException(status_code=502, detail=f"获取后端 models 失败: {e}")
+            logger.error(f"catch-all 获取 models 失败: {e}")
+            raise HTTPException(status_code=502, detail=f"获取 models 失败: {e}")
 
     if "usage" in request_path.lower():
         return await _build_usage_limits_response(request)

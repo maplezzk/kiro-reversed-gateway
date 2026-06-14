@@ -20,6 +20,17 @@ BACKEND_API_URL=http://<host>:<port>/v1
 BACKEND_API_KEY=<your-api-key>
 ```
 
+走混合模式：官方模型走 Kiro，自定义模型走 OpenAI 后端。自定义模型会在列表里显示成 `custom/<backend_model_id>`。
+
+```env
+MODE=hybrid
+BACKEND_API_URL=http://<host>:<port>/v1
+BACKEND_API_KEY=<your-api-key>
+FORWARD_TARGET=auto
+KIRO_RUNTIME_IP=<runtime-ip>
+KIRO_MANAGEMENT_IP=<management-ip>
+```
+
 纯官方转发：
 
 ```env
@@ -165,12 +176,14 @@ open "tools/macos-menubar/build/Kiro Gateway Menu.app"
 菜单栏标题会直接显示当前状态：
 
 - `Kiro：OpenAI`
+- `Kiro：混合`
 - `Kiro：直连`
 - `Kiro：异常`
 
 菜单功能：
 
 - 切换到 OpenAI 代理模式：写入 `MODE=openai`，然后重启 Docker 服务
+- 切换到混合模式：写入 `MODE=hybrid`，然后重启 Docker 服务
 - 切换到官方直连模式：写入 `MODE=forward`，校验 `KIRO_*_IP`，然后重启 Docker 服务
 - 重启 Docker 服务
 - 查看 Docker 日志

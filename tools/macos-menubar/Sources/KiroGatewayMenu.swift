@@ -30,6 +30,7 @@ final class KiroGatewayMenuApp: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
 
         menu.addItem(NSMenuItem(title: "切换到 OpenAI 代理模式", action: #selector(useOpenAIProxy), keyEquivalent: "o"))
+        menu.addItem(NSMenuItem(title: "切换到混合模式", action: #selector(useHybridMode), keyEquivalent: "h"))
         menu.addItem(NSMenuItem(title: "切换到官方直连模式", action: #selector(useForwardMode), keyEquivalent: "f"))
         menu.addItem(NSMenuItem(title: "重启 Docker 服务", action: #selector(restartDocker), keyEquivalent: "r"))
         menu.addItem(NSMenuItem.separator())
@@ -49,6 +50,10 @@ final class KiroGatewayMenuApp: NSObject, NSApplicationDelegate {
         runProjectScript("./scripts/mode-openai.sh && ./scripts/restart-docker.sh", successTitle: "已切换到 OpenAI 代理模式")
     }
 
+    @objc private func useHybridMode() {
+        runProjectScript("./scripts/mode-hybrid.sh && ./scripts/restart-docker.sh", successTitle: "已切换到混合模式")
+    }
+
     @objc private func useForwardMode() {
         runProjectScript("./scripts/mode-forward.sh && ./scripts/restart-docker.sh", successTitle: "已切换到官方直连模式")
     }
@@ -63,9 +68,21 @@ final class KiroGatewayMenuApp: NSObject, NSApplicationDelegate {
             let parsed = parseStatus(result.output)
             let mode = parsed["MODE"] ?? "unknown"
             let docker = parsed["DOCKER"] ?? "unknown"
-            let modeLabel = mode == "forward" ? "官方直连" : (mode == "openai" ? "OpenAI 代理" : mode)
+            let modeLabel = mode == "forward" ? "官方直连" : (mode == "hybrid" ? "混合模式" : (mode == "openai" ? "OpenAI 代理" : mode))
             let statusText = "当前: \(modeLabel) / Docker: \(docker)"
-            setMenuBarTitle(mode == "forward" ? "Kiro：直连" : "Kiro：OpenAI", symbolName: mode == "forward" ? "bolt.circle.fill" : "arrow.triangle.2.circlepath.circle.fill")
+            let title: String
+            let symbolName: String
+            if mode == "forward" {
+                title = "Kiro：直连"
+                symbolName = "bolt.circle.fill"
+            } else if mode == "hybrid" {
+                title = "Kiro：混合"
+                symbolName = "arrow.triangle.branch"
+            } else {
+                title = "Kiro：OpenAI"
+                symbolName = "arrow.triangle.2.circlepath.circle.fill"
+            }
+            setMenuBarTitle(title, symbolName: symbolName)
             statusItem.button?.toolTip = statusText
             rebuildMenu(statusText: statusText)
         } else {

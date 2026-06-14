@@ -30,6 +30,7 @@ FIRST_TOKEN_TIMEOUT: float = float(os.getenv("FIRST_TOKEN_TIMEOUT", "60"))
 # --- 运行模式 ---
 # "openai": Kiro → OpenAI 转换模式 (默认, 走自定义后端)
 # "forward": 纯转发模式 (直连 Kiro 真实 API, 不走转换)
+# "hybrid": 混合模式 (官方模型走 Kiro, custom/* 模型走自定义后端)
 MODE: str = os.getenv("MODE", "openai")
 
 # --- 日志 ---
@@ -40,10 +41,19 @@ PROFILE_ARN: str = os.getenv("PROFILE_ARN", "").strip()
 
 # --- 模型 ---
 SIMPLE_TASK_MODEL: str = os.getenv("SIMPLE_TASK_MODEL", "").strip()
+CUSTOM_MODEL_PREFIX: str = os.getenv("CUSTOM_MODEL_PREFIX", "custom/").strip() or "custom/"
+
+
+def strip_custom_model_prefix(model_id: str) -> str:
+    """Strip the custom model prefix before sending requests to backend."""
+    if model_id.startswith(CUSTOM_MODEL_PREFIX):
+        return model_id[len(CUSTOM_MODEL_PREFIX):]
+    return model_id
 
 
 def map_model(kiro_model_id: str) -> str:
-    """Map Kiro internal helper models only when explicitly configured."""
-    if kiro_model_id == "simple-task" and SIMPLE_TASK_MODEL:
+    """Map Kiro model IDs to backend model IDs."""
+    backend_model_id = strip_custom_model_prefix(kiro_model_id)
+    if backend_model_id == "simple-task" and SIMPLE_TASK_MODEL:
         return SIMPLE_TASK_MODEL
-    return kiro_model_id
+    return backend_model_id

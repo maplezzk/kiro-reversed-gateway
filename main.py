@@ -161,8 +161,8 @@ def validate_startup_config(host: str, port: int, use_tls: bool) -> None:
         errors.append(f"SERVER_PORT 必须在 1-65535 之间，当前值: {port}")
 
     mode = MODE.strip().lower()
-    if mode not in {"openai", "forward"}:
-        errors.append(f"MODE 只能是 openai 或 forward，当前值: {MODE!r}")
+    if mode not in {"openai", "forward", "hybrid"}:
+        errors.append(f"MODE 只能是 openai、forward 或 hybrid，当前值: {MODE!r}")
 
     forward_target = os.getenv("FORWARD_TARGET", "auto").strip().lower()
     allowed_forward_targets = {"auto", "runtime", "management", "q", "random"}
@@ -172,9 +172,9 @@ def validate_startup_config(host: str, port: int, use_tls: bool) -> None:
             f"当前值: {forward_target!r}"
         )
 
-    if mode == "openai":
+    if mode in {"openai", "hybrid"}:
         if not BACKEND_API_URL:
-            errors.append("MODE=openai 时必须配置 BACKEND_API_URL，推荐格式: http://host:port/v1")
+            errors.append(f"MODE={mode} 时必须配置 BACKEND_API_URL，推荐格式: http://host:port/v1")
         else:
             errors.extend(_validate_url(BACKEND_API_URL, "BACKEND_API_URL"))
 
@@ -188,14 +188,15 @@ def validate_startup_config(host: str, port: int, use_tls: bool) -> None:
         if KEY_FILE and not Path(KEY_FILE).is_file():
             errors.append(f"TLS 私钥不存在: {Path(KEY_FILE).resolve()}")
 
-    if mode == "forward":
+    if mode in {"forward", "hybrid"}:
+        required_forward_envs = _required_forward_ip_envs(forward_target) if mode == "forward" else ("KIRO_RUNTIME_IP", "KIRO_MANAGEMENT_IP")
         missing_forward_ips = [
-            name for name in _required_forward_ip_envs(forward_target)
+            name for name in required_forward_envs
             if not os.getenv(name, "").strip()
         ]
         if missing_forward_ips:
             errors.append(
-                "MODE=forward 必须配置对应官方上游 IP；"
+                f"MODE={mode} 必须配置对应官方上游 IP；"
                 f"当前 FORWARD_TARGET={forward_target!r}，缺少: {', '.join(missing_forward_ips)}"
             )
 
