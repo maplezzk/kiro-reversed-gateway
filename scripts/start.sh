@@ -9,7 +9,9 @@ VENV_DIR="${VENV_DIR:-.venv}"
 PORT="${PORT:-443}"
 HOST="${HOST:-}"
 NO_TLS="${NO_TLS:-false}"
-SKIP_INSTALL="${SKIP_INSTALL:-false}"
+CONNECT_PROXY_HOST="${CONNECT_PROXY_HOST:-127.0.0.1}"
+CONNECT_PROXY_PORT="${CONNECT_PROXY_PORT:-}"
+CONNECT_PROXY_ENABLED="${CONNECT_PROXY_ENABLED:-true}"
 
 show_help() {
   cat <<'EOF'
@@ -20,6 +22,7 @@ Options:
   --port PORT       监听端口，默认 443
   --no-tls          使用 HTTP 调试模式；不会生成或使用 TLS 证书
   --skip-install    跳过 pip install -r requirements.txt
+  --no-connect-proxy 不启动 Clash CONNECT 代理
   -h, --help        显示帮助
 
 TLS:
@@ -32,7 +35,9 @@ Environment overrides:
   PORT=443
   HOST=0.0.0.0
   NO_TLS=true
-  SKIP_INSTALL=true
+  CONNECT_PROXY_HOST=127.0.0.1
+  CONNECT_PROXY_PORT=7898
+  CONNECT_PROXY_ENABLED=true
 EOF
 }
 
@@ -54,6 +59,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-install)
       SKIP_INSTALL="true"
+      shift
+      ;;
+    --no-connect-proxy)
+      CONNECT_PROXY_ENABLED="false"
       shift
       ;;
     -h|--help)
@@ -79,6 +88,11 @@ warn() {
 fail() {
   printf '\033[31m[ERROR]\033[0m %s\n' "$*" >&2
   exit 1
+}
+
+get_env_value() {
+  local key="$1"
+  grep -E "^[[:space:]]*${key}=" .env 2>/dev/null | tail -n 1 | cut -d '=' -f 2- | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' | sed -E 's/^"(.*)"$/\1/' | sed -E "s/^'(.*)'$/\1/"
 }
 
 if [[ ! -f ".env" ]]; then
@@ -138,6 +152,11 @@ if [[ "$NO_TLS" != "true" ]]; then
   trust_certificate_if_possible
 fi
 
+if [[ -z "$CONNECT_PROXY_PORT" ]]; then
+  CONNECT_PROXY_PORT="$(get_env_value CONNECT_PROXY_PORT || true)"
+fi
+CONNECT_PROXY_PORT="${CONNECT_PROXY_PORT:-7898}"
+
 ARGS=("main.py" "--port" "$PORT")
 if [[ -n "$HOST" ]]; then
   ARGS+=("--host" "$HOST")
@@ -146,16 +165,46 @@ if [[ "$NO_TLS" == "true" ]]; then
   ARGS+=("--no-tls")
 fi
 
+CONNECT_PROXY_PID=""
+cleanup_connect_proxy() {
+  if [[ -n "$CONNECT_PROXY_PID" ]] && kill -0 "$CONNECT_PROXY_PID" 2>/dev/null; then
+    info "停止 Clash CONNECT proxy"
+    kill "$CONNECT_PROXY_PID" 2>/dev/null || true
+    wait "$CONNECT_PROXY_PID" 2>/dev/null || true
+  fi
+}
+
+if [[ "$CONNECT_PROXY_ENABLED" == "true" && "$NO_TLS" != "true" ]]; then
+  info "启动 Clash CONNECT proxy"
+  info "代理端口: $CONNECT_PROXY_HOST:$CONNECT_PROXY_PORT -> 127.0.0.1:$PORT"
+  python connect_proxy.py \
+    --listen-host "$CONNECT_PROXY_HOST" \
+    --listen-port "$CONNECT_PROXY_PORT" \
+    --target-host 127.0.0.1 \
+    --target-port "$PORT" &
+  CONNECT_PROXY_PID="$!"
+  trap cleanup_connect_proxy EXIT INT TERM
+  sleep 0.2
+  if ! kill -0 "$CONNECT_PROXY_PID" 2>/dev/null; then
+    wait "$CONNECT_PROXY_PID" 2>/dev/null || true
+    fail "Clash CONNECT proxy 启动失败，请检查 CONNECT_PROXY_PORT=$CONNECT_PROXY_PORT 是否被占用。"
+  fi
+elif [[ "$NO_TLS" == "true" ]]; then
+  warn "HTTP 调试模式下不启动 Clash CONNECT proxy。"
+fi
+
 info "启动 kiro-reversed-gateway"
 info "端口: $PORT"
 if [[ "$NO_TLS" == "true" ]]; then
   info "模式: HTTP 调试模式"
-  exec python "${ARGS[@]}"
+  python "${ARGS[@]}"
+  exit $?
 fi
 
 if [[ "$PORT" -lt 1024 && "$(id -u)" -ne 0 ]]; then
   warn "端口 $PORT 需要 root 权限，切换 sudo 启动。"
-  exec sudo -E "$VENV_DIR/bin/python" "${ARGS[@]}"
+  sudo -E "$VENV_DIR/bin/python" "${ARGS[@]}"
+  exit $?
 fi
 
-exec python "${ARGS[@]}"
+python "${ARGS[@]}"

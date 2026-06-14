@@ -103,9 +103,9 @@ BACKEND_API_URL=http://host.docker.internal:<port>/v1
 
 ## Clash 代理模式（不改 hosts）
 
-如果不想改 `/etc/hosts`，可以让 Clash 把 Kiro 域名转到本地 CONNECT shim。
+如果不想改 `/etc/hosts`，可以让 Clash 把 Kiro 域名转到本地 CONNECT proxy。
 
-Docker 启动会同时暴露：
+默认启动会同时暴露：
 
 ```text
 127.0.0.1:443                   -> HTTPS 网关
@@ -118,22 +118,22 @@ Docker 启动会同时暴露：
 CONNECT_PROXY_PORT=7898
 ```
 
-启动：
+启动方式不变：
+
+```bash
+./scripts/start.sh
+```
+
+或 Docker：
 
 ```bash
 ./scripts/docker-start.sh
 ```
 
-如果不用 Docker，也可以单独启动 CONNECT shim：
+不需要单独启动 proxy。确实不想启动 CONNECT proxy 时，本地模式可以用：
 
 ```bash
-./scripts/start-connect-proxy.sh
-```
-
-默认监听 `.env` 里的 `CONNECT_PROXY_PORT`：
-
-```text
-127.0.0.1:7898
+./scripts/start.sh --no-connect-proxy
 ```
 
 Clash 配置示例：
