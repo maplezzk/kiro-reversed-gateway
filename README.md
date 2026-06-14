@@ -85,20 +85,6 @@ sudo sh -c 'cat >> /etc/hosts <<EOF
 EOF'
 ```
 
-如果 Clash 开启了 `fake-ip`，且你同时使用 `/etc/hosts`，需要额外加：
-
-```yaml
-dns:
-  enhanced-mode: fake-ip
-  fake-ip-filter:
-    - runtime.us-east-1.kiro.dev
-    - management.us-east-1.kiro.dev
-
-rules:
-  - DOMAIN,runtime.us-east-1.kiro.dev,DIRECT
-  - DOMAIN,management.us-east-1.kiro.dev,DIRECT
-```
-
 ### 3. 证书
 
 TLS 模式下，启动脚本会自动处理证书：缺失时生成，macOS 上自动信任。已存在证书不会重建。
