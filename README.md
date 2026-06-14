@@ -1,0 +1,266 @@
+# kiro-reversed-gateway
+
+`kiro-reversed-gateway` 是一个给 Kiro IDE 使用的本地反向代理。
+
+它可以把 Kiro IDE 的请求转成 OpenAI 兼容格式，发给你自己的大模型后端，再把后端响应转回 Kiro IDE 能识别的格式。
+
+简单说：**让 Kiro IDE 使用你自己的 OpenAI 兼容模型。**
+
+```text
+Kiro IDE
+  → kiro-reversed-gateway
+  → 你的 OpenAI 兼容后端
+  → kiro-reversed-gateway
+  → Kiro IDE
+```
+
+---
+
+## 主要功能
+
+- 拦截 Kiro runtime 请求
+- 转换 Kiro 请求为 OpenAI Chat Completions 请求
+- 转换 OpenAI SSE 响应为 Kiro Event Stream 响应
+- 支持工具调用
+- 支持图片输入
+- 从后端 `/models` 读取模型列表并显示到 Kiro IDE
+- 本地兜底 Kiro Profile / Usage 接口，避免 IDE 报错
+
+技术细节见：[`docs/TECHNICAL_DETAILS.md`](docs/TECHNICAL_DETAILS.md)
+
+---
+
+## 快速开始
+
+### 1. 安装依赖
+
+```bash
+cd ~/CliProject/kiro-reversed-gateway
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+```
+
+---
+
+### 2. 配置 `.env`
+
+复制模板：
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env`：
+
+```env
+SERVER_HOST=0.0.0.0
+SERVER_PORT=443
+MODE=openai
+FORWARD_TARGET=auto
+
+# 配到 OpenAI 兼容 API base 即可，代理会自动拼 /chat/completions 和 /models
+BACKEND_API_URL=http://<host>:<port>/v1
+BACKEND_API_KEY=<your-api-key>
+
+# 如果你的后端没有 simple-task，可以把 Kiro 内部轻量任务映射到某个已有模型
+SIMPLE_TASK_MODEL=
+
+USE_TLS=true
+CERT_FILE=certs/cert.pem
+KEY_FILE=certs/key.pem
+LOG_LEVEL=INFO
+```
+
+说明：
+
+- `BACKEND_API_URL` 推荐配到 `/v1`
+- 代理会请求：
+  - `POST ${BACKEND_API_URL}/chat/completions`
+  - `GET ${BACKEND_API_URL}/models`
+- 如果不需要 API Key，可以留空 `BACKEND_API_KEY`
+
+---
+
+### 3. 生成 TLS 证书
+
+```bash
+mkdir -p certs
+
+openssl req -x509 -newkey rsa:4096 \
+  -keyout certs/key.pem \
+  -out certs/cert.pem \
+  -days 365 -nodes \
+  -subj "/CN=runtime.us-east-1.kiro.dev" \
+  -addext "subjectAltName=DNS:runtime.us-east-1.kiro.dev,DNS:management.us-east-1.kiro.dev,DNS:*.kiro.dev"
+```
+
+信任证书：
+
+```bash
+sudo security add-trusted-cert -d -r trustRoot \
+  -k /Library/Keychains/System.keychain certs/cert.pem
+```
+
+注意：每次重新生成证书后都要重新信任。
+
+---
+
+### 4. 配置 hosts
+
+把 Kiro 域名指向本机：
+
+```bash
+sudo sh -c 'cat >> /etc/hosts <<EOF
+127.0.0.1 runtime.us-east-1.kiro.dev
+127.0.0.1 management.us-east-1.kiro.dev
+EOF'
+```
+
+确认：
+
+```bash
+grep 'kiro.dev' /etc/hosts
+```
+
+---
+
+### 5. 启动代理
+
+443 端口需要 sudo：
+
+```bash
+sudo .venv/bin/python main.py --port 443
+```
+
+如果只想本地 HTTP 调试：
+
+```bash
+.venv/bin/python main.py --no-tls --port 8443
+```
+
+启动时会检查核心配置。如果缺少 `BACKEND_API_URL`、证书不存在、URL 仍是占位符等，服务会直接退出。
+
+---
+
+### 6. 重启 Kiro
+
+```bash
+osascript -e 'quit app "Kiro"'
+open -a Kiro
+```
+
+然后在 Kiro 里选择你的后端模型开始使用。
+
+---
+
+## Docker 使用要点
+
+可以 Docker 化，但要注意：
+
+- `/etc/hosts` 要改宿主机，不是容器
+- 宿主机需要映射 `443:443`
+- 如果后端跑在宿主机，容器内不能用 `127.0.0.1` 访问它，要用：
+
+```env
+BACKEND_API_URL=http://host.docker.internal:<port>/v1
+```
+
+- 证书文件可以挂载进容器，但信任证书仍然要在宿主机执行
+
+---
+
+## Clash 配置要点
+
+如果你使用 Clash / Clash Verge / ClashX，建议确保 Kiro 域名不要被 fake-ip 污染，直接解析到本机。
+
+示例片段：
+
+```yaml
+dns:
+  enable: true
+  enhanced-mode: fake-ip
+  fake-ip-filter:
+    - runtime.us-east-1.kiro.dev
+    - management.us-east-1.kiro.dev
+
+hosts:
+  runtime.us-east-1.kiro.dev: 127.0.0.1
+  management.us-east-1.kiro.dev: 127.0.0.1
+
+rules:
+  - DOMAIN,runtime.us-east-1.kiro.dev,DIRECT
+  - DOMAIN,management.us-east-1.kiro.dev,DIRECT
+```
+
+如果你的 Clash 版本不支持 `hosts`，就继续用系统 `/etc/hosts`。
+
+更详细说明见：[`docs/TECHNICAL_DETAILS.md`](docs/TECHNICAL_DETAILS.md)
+
+---
+
+## 常用验证
+
+### 验证模型列表
+
+```bash
+curl -skS \
+  -H 'Host: management.us-east-1.kiro.dev' \
+  -H 'content-type: application/x-amz-json-1.0' \
+  -H 'x-amz-target: KiroControlPlaneBearerService.ListAvailableModels' \
+  -d '{"origin":"AI_EDITOR","profileArn":""}' \
+  https://127.0.0.1/
+```
+
+### 验证用量接口
+
+```bash
+curl -skS \
+  -H 'Host: management.us-east-1.kiro.dev' \
+  -H 'content-type: application/x-amz-json-1.0' \
+  -H 'x-amz-target: KiroControlPlaneBearerService.GetUsageLimits' \
+  -d '{"origin":"AI_EDITOR","profileArn":"","resourceType":"AGENTIC_REQUEST"}' \
+  https://127.0.0.1/
+```
+
+---
+
+## 日志
+
+日志在：
+
+```text
+debug_logs/
+```
+
+常用文件：
+
+- `models.jsonl`：模型列表
+- `usage_limits.jsonl`：用量接口
+- `profiles.jsonl`：Profile 接口
+- `unknown_requests.jsonl`：未知 control-plane 请求
+- `*_backend_sse_*.jsonl`：后端 SSE 原始日志
+
+---
+
+## 恢复官方 Kiro
+
+停止代理后，从 `/etc/hosts` 删除或注释：
+
+```text
+127.0.0.1 runtime.us-east-1.kiro.dev
+127.0.0.1 management.us-east-1.kiro.dev
+```
+
+然后重启 Kiro：
+
+```bash
+osascript -e 'quit app "Kiro"'
+open -a Kiro
+```
+
+---
+
+## 更多文档
+
+- 技术细节：[`docs/TECHNICAL_DETAILS.md`](docs/TECHNICAL_DETAILS.md)
