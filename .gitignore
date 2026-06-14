@@ -5,3 +5,4 @@ __pycache__/
 certs/
 .env
 debug_logs/
+tools/macos-menubar/build/
