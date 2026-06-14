@@ -18,6 +18,6 @@ RUN mkdir -p /app/debug_logs /app/certs \
 
 USER kiro
 
-EXPOSE 8443
+EXPOSE 8443 7898
 
 CMD ["python", "main.py", "--port", "8443"]

@@ -27,9 +27,9 @@ open "tools/macos-menubar/build/Kiro Gateway Menu.app"
 菜单栏标题直接显示当前状态：
 
 ```text
-OpenAI代理
-官方直连
-Kiro异常
+Kiro：OpenAI
+Kiro：直连
+Kiro：异常
 ```
 
 ## 功能

@@ -14,7 +14,8 @@ final class KiroGatewayMenuApp: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "Kiro"
+        setMenuBarTitle("Kiro：启动中", symbolName: "hourglass")
+        statusItem.button?.toolTip = "Kiro Gateway 模式切换"
         statusItem.menu = menu
         rebuildMenu(statusText: "读取中…")
         refreshStatus(nil)
@@ -64,10 +65,12 @@ final class KiroGatewayMenuApp: NSObject, NSApplicationDelegate {
             let docker = parsed["DOCKER"] ?? "unknown"
             let modeLabel = mode == "forward" ? "官方直连" : (mode == "openai" ? "OpenAI 代理" : mode)
             let statusText = "当前: \(modeLabel) / Docker: \(docker)"
-            statusItem.button?.title = mode == "forward" ? "官方直连" : "OpenAI代理"
+            setMenuBarTitle(mode == "forward" ? "Kiro：直连" : "Kiro：OpenAI", symbolName: mode == "forward" ? "bolt.circle.fill" : "arrow.triangle.2.circlepath.circle.fill")
+            statusItem.button?.toolTip = statusText
             rebuildMenu(statusText: statusText)
         } else {
-            statusItem.button?.title = "Kiro异常"
+            setMenuBarTitle("Kiro：异常", symbolName: "exclamationmark.triangle.fill")
+            statusItem.button?.toolTip = "Kiro Gateway 状态读取失败"
 
             rebuildMenu(statusText: "状态读取失败")
         }
@@ -88,7 +91,7 @@ final class KiroGatewayMenuApp: NSObject, NSApplicationDelegate {
     }
 
     private func runProjectScript(_ command: String, successTitle: String) {
-        statusItem.button?.title = "切换中…"
+        setMenuBarTitle("Kiro：切换中", symbolName: "hourglass")
 
         let result = Shell.run("cd \(Shell.quote(projectPath)) && \(command)")
         if result.exitCode == 0 {
@@ -97,6 +100,16 @@ final class KiroGatewayMenuApp: NSObject, NSApplicationDelegate {
             showAlert(title: "操作失败", message: tail(result.output + "\n" + result.error))
         }
         refreshStatus(nil)
+    }
+
+    private func setMenuBarTitle(_ title: String, symbolName: String) {
+        guard let button = statusItem.button else { return }
+        button.title = title
+        button.imagePosition = .imageLeading
+        if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title) {
+            image.isTemplate = true
+            button.image = image
+        }
     }
 
     private func parseStatus(_ text: String) -> [String: String] {

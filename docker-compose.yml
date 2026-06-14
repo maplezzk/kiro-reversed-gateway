@@ -17,3 +17,23 @@ services:
       # BACKEND_API_URL=http://host.docker.internal:<port>/v1
     volumes:
       - ./certs:/app/certs:ro
+
+  connect-proxy:
+    build: .
+    container_name: kiro-reversed-connect-proxy
+    restart: unless-stopped
+    depends_on:
+      - kiro-reversed-gateway
+    command:
+      - python
+      - connect_proxy.py
+      - --listen-host
+      - 0.0.0.0
+      - --listen-port
+      - "7898"
+      - --target-host
+      - kiro-reversed-gateway
+      - --target-port
+      - "8443"
+    ports:
+      - "7898:7898"
