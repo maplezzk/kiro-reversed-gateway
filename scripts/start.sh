@@ -105,6 +105,25 @@ else
   info "跳过依赖安装: SKIP_INSTALL=true"
 fi
 
+trust_certificate_if_possible() {
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    return 0
+  fi
+  if ! command -v security >/dev/null 2>&1; then
+    return 0
+  fi
+  local fingerprint_file="certs/.trusted-fingerprint"
+  local fingerprint
+  fingerprint="$(openssl x509 -in certs/cert.pem -noout -fingerprint -sha256 | cut -d '=' -f 2)"
+  if [[ -f "$fingerprint_file" && "$(cat "$fingerprint_file")" == "$fingerprint" ]]; then
+    return 0
+  fi
+  info "信任 macOS TLS 证书"
+  sudo security add-trusted-cert -d -r trustRoot \
+    -k /Library/Keychains/System.keychain certs/cert.pem
+  printf '%s' "$fingerprint" > "$fingerprint_file"
+}
+
 if [[ "$NO_TLS" != "true" ]]; then
   if [[ ! -f "certs/cert.pem" || ! -f "certs/key.pem" ]]; then
     warn "未找到 TLS 证书，正在生成自签名证书。"
@@ -115,10 +134,8 @@ if [[ "$NO_TLS" != "true" ]]; then
       -days 365 -nodes \
       -subj "/CN=runtime.us-east-1.kiro.dev" \
       -addext "subjectAltName=DNS:runtime.us-east-1.kiro.dev,DNS:management.us-east-1.kiro.dev,DNS:*.kiro.dev"
-
-    warn "证书已生成。macOS 需要信任证书后 Kiro 才能正常连接："
-    warn "sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain certs/cert.pem"
   fi
+  trust_certificate_if_possible
 fi
 
 ARGS=("main.py" "--port" "$PORT")

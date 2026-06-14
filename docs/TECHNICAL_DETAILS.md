@@ -655,6 +655,7 @@ curl -vk https://runtime.us-east-1.kiro.dev/health
 - 安装 `requirements.txt`
 - TLS 模式下检查 `certs/cert.pem` 和 `certs/key.pem`
 - 没有证书时自动生成覆盖 runtime / management 的自签名证书
+- macOS 上自动信任证书
 - 443 端口需要 root 权限时自动用 `sudo -E` 重启
 - 最终调用 `main.py`，由应用执行启动前配置校验
 
@@ -675,13 +676,6 @@ PYTHON_BIN=python3.12 ./scripts/start.sh
 VENV_DIR=.venv ./scripts/start.sh
 SKIP_INSTALL=true ./scripts/start.sh
 NO_TLS=true PORT=8443 ./scripts/start.sh
-```
-
-注意：脚本可以生成证书，但不能替用户信任证书。macOS 上仍需执行：
-
-```bash
-sudo security add-trusted-cert -d -r trustRoot \
-  -k /Library/Keychains/System.keychain certs/cert.pem
 ```
 
 ---
@@ -812,6 +806,7 @@ docker compose exec kiro-reversed-gateway sh
 - 创建 `certs/`
 - 检查 `BACKEND_API_URL`，Docker 模式下发现 `127.0.0.1` 或 `localhost` 会直接退出并提示改成 `host.docker.internal`
 - 没有证书时自动生成自签名证书
+- macOS 上自动信任证书
 - 执行 `docker compose up -d --build`
 - 可选 `--logs` 跟随日志
 

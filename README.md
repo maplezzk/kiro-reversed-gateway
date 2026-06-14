@@ -2,7 +2,7 @@
 
 `kiro-reversed-gateway` 是一个给 Kiro IDE 使用的本地反向代理。它把 Kiro 请求转成 OpenAI 兼容请求，发给你自己的后端，再把响应转回 Kiro。
 
-## 怎么用
+## 准备工作
 
 ### 1. 配置 `.env`
 
@@ -17,34 +17,7 @@ BACKEND_API_URL=http://<host>:<port>/v1
 BACKEND_API_KEY=<your-api-key>
 ```
 
-### 2. 本地启动
-
-```bash
-./scripts/start.sh
-```
-
-如果需要参数：
-
-```bash
-./scripts/start.sh --help
-```
-
-### 3. Docker 启动
-
-```bash
-./scripts/docker-start.sh
-./scripts/docker-stop.sh
-```
-
-常用命令：
-
-```bash
-./scripts/docker-start.sh --logs
-./scripts/docker-start.sh --no-build
-./scripts/docker-stop.sh --volumes
-```
-
-### 4. 配置网络劫持
+### 2. 配置网络劫持
 
 把 Kiro 域名指到本机：
 
@@ -77,29 +50,45 @@ hosts:
   management.us-east-1.kiro.dev: 127.0.0.1
 ```
 
-### 5. 信任证书
+### 3. 证书
 
-首次生成证书后，在 macOS 上信任一次：
+TLS 模式下，启动脚本会自动处理证书：缺失时生成，macOS 上自动信任。已存在证书不会重建。
+
+## 本地启动
 
 ```bash
-sudo security add-trusted-cert -d -r trustRoot \
-  -k /Library/Keychains/System.keychain certs/cert.pem
+./scripts/start.sh
 ```
 
-### 6. 重启 Kiro
+查看参数：
 
 ```bash
-osascript -e 'quit app "Kiro"'
-open -a Kiro
+./scripts/start.sh --help
+```
+
+## Docker 启动
+
+```bash
+./scripts/docker-start.sh
+./scripts/docker-stop.sh
+```
+
+常用命令：
+
+```bash
+./scripts/docker-start.sh --logs
+./scripts/docker-start.sh --no-build
+./scripts/docker-stop.sh --volumes
+```
+
+如果你的后端跑在宿主机，Docker 场景下要用：
+
+```env
+BACKEND_API_URL=http://host.docker.internal:<port>/v1
 ```
 
 ## 提示
 
-- `./scripts/start.sh` 会在 TLS 模式下自动生成一次证书（仅首次缺失时）
-- Docker 场景下，后端如果跑在宿主机，请用 `host.docker.internal`
+- 本地启动和 Docker 启动是两条独立路径
 - 容器日志直接看 `docker compose logs -f`
-- 如果你的系统开了 Clash fake-ip，务必把 Kiro 域名加入 `fake-ip-filter`
-
-## 其他文档
-
-- 技术细节：[`docs/TECHNICAL_DETAILS.md`](docs/TECHNICAL_DETAILS.md)
+- 更详细的技术细节见：[`docs/TECHNICAL_DETAILS.md`](docs/TECHNICAL_DETAILS.md)

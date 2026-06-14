@@ -18,8 +18,9 @@ Options:
 
 Notes:
   - 如果后端跑在宿主机，.env 里 BACKEND_API_URL 应使用 http://host.docker.internal:<port>/v1
-  - /etc/hosts 和证书信任仍然在宿主机配置
+  - /etc/hosts 仍然在宿主机配置
   - 如果 certs/cert.pem 或 certs/key.pem 不存在，脚本会自动生成一次；已存在时不会重新生成
+  - macOS 上脚本会按证书指纹自动信任；证书没变不会重复执行
 EOF
 }
 
@@ -91,6 +92,25 @@ if [[ "$backend_api_url" == http://127.0.0.1:* || "$backend_api_url" == https://
   fail "Docker 容器内不能用 127.0.0.1/localhost 访问宿主机后端，请改为: BACKEND_API_URL=http://host.docker.internal:<port>/v1"
 fi
 
+trust_certificate_if_possible() {
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    return 0
+  fi
+  if ! command -v security >/dev/null 2>&1; then
+    return 0
+  fi
+  local fingerprint_file="certs/.trusted-fingerprint"
+  local fingerprint
+  fingerprint="$(openssl x509 -in certs/cert.pem -noout -fingerprint -sha256 | cut -d '=' -f 2)"
+  if [[ -f "$fingerprint_file" && "$(cat "$fingerprint_file")" == "$fingerprint" ]]; then
+    return 0
+  fi
+  info "信任 macOS TLS 证书"
+  sudo security add-trusted-cert -d -r trustRoot \
+    -k /Library/Keychains/System.keychain certs/cert.pem
+  printf '%s' "$fingerprint" > "$fingerprint_file"
+}
+
 if [[ ! -f "certs/cert.pem" || ! -f "certs/key.pem" ]]; then
   warn "未找到 TLS 证书，正在生成自签名证书。"
   openssl req -x509 -newkey rsa:4096 \
@@ -99,10 +119,8 @@ if [[ ! -f "certs/cert.pem" || ! -f "certs/key.pem" ]]; then
     -days 365 -nodes \
     -subj "/CN=runtime.us-east-1.kiro.dev" \
     -addext "subjectAltName=DNS:runtime.us-east-1.kiro.dev,DNS:management.us-east-1.kiro.dev,DNS:*.kiro.dev"
-
-  warn "证书已生成。macOS 需要信任证书后 Kiro 才能正常连接："
-  warn "sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain certs/cert.pem"
 fi
+trust_certificate_if_possible
 
 if [[ "$BUILD" == "true" ]]; then
   info "构建并启动 Docker 服务"
