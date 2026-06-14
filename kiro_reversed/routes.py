@@ -326,7 +326,9 @@ async def list_available_models(request: Request):
 @router.api_route("/GetUsageLimits", methods=["GET", "POST"])
 @router.api_route("/Get-Usage-Limits", methods=["GET", "POST"])
 async def get_usage_limits(request: Request):
-    """Return a local usage limits response for Kiro account UI compatibility."""
+    """Return usage limits response or forward it in pure forward mode."""
+    if MODE == "forward":
+        return await _handle_forward_mode(request)
     return await _build_usage_limits_response(request)
 
 
@@ -336,7 +338,9 @@ async def get_usage_limits(request: Request):
 @router.api_route("/GetProfile", methods=["GET", "POST"])
 @router.api_route("/Get-Profile", methods=["GET", "POST"])
 async def profile_endpoints(request: Request):
-    """Return local profile responses for Kiro management UI compatibility."""
+    """Return profile responses or forward them in pure forward mode."""
+    if MODE == "forward":
+        return await _handle_forward_mode(request)
     return await _build_profile_response(request)
 
 
@@ -649,8 +653,8 @@ async def generate_assistant_response(request: Request):
 async def catch_all(request: Request, path: str):
     """Log and handle unknown Kiro endpoints.
 
-    OpenAI 模式下，管理平面采用混合策略：模型列表返回后端模型，
-    其它 management/control-plane 请求原样转发官方，避免账号用量等接口失败。
+    MODE=forward 时所有请求纯转发官方。
+    MODE=openai 时 runtime 走 OpenAI 转换，management 已知接口走本地兜底。
     """
     raw_body = await request.body()
     request_path = request.url.path
@@ -673,9 +677,10 @@ async def catch_all(request: Request, path: str):
     )
 
     amz_target = request.headers.get("x-amz-target", "")
+    if MODE == "forward":
+        return await _handle_forward_mode(request)
+
     if "ListAvailableModels" in amz_target:
-        if MODE == "forward":
-            return await _handle_forward_mode(request)
         try:
             return await _build_backend_models_response()
         except Exception as e:
@@ -687,8 +692,6 @@ async def catch_all(request: Request, path: str):
         return await _build_profile_response(request)
 
     if "model" in request_path.lower():
-        if MODE == "forward":
-            return await _handle_forward_mode(request)
         try:
             return await _build_backend_models_response()
         except Exception as e:
@@ -708,7 +711,7 @@ async def catch_all(request: Request, path: str):
             headers={"cache-control": "no-store"},
         )
 
-    if MODE == "forward" or target_name == "management":
+    if target_name == "management":
         return await _handle_forward_mode(request)
 
     raise HTTPException(status_code=404, detail=f"Unknown endpoint: {request_path}")

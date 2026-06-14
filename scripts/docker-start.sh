@@ -83,13 +83,17 @@ get_env_value() {
   grep -E "^[[:space:]]*${key}=" .env | tail -n 1 | cut -d '=' -f 2- | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' | sed -E 's/^"(.*)"$/\1/' | sed -E "s/^'(.*)'$/\1/"
 }
 
+mode="$(get_env_value MODE || true)"
+mode="${mode:-openai}"
 backend_api_url="$(get_env_value BACKEND_API_URL || true)"
-if [[ -z "$backend_api_url" ]]; then
-  fail "BACKEND_API_URL 未配置。Docker 模式下推荐: BACKEND_API_URL=http://host.docker.internal:<port>/v1"
-fi
+if [[ "$mode" == "openai" ]]; then
+  if [[ -z "$backend_api_url" ]]; then
+    fail "MODE=openai 时必须配置 BACKEND_API_URL。Docker 模式下推荐: BACKEND_API_URL=http://host.docker.internal:<port>/v1"
+  fi
 
-if [[ "$backend_api_url" == http://127.0.0.1:* || "$backend_api_url" == https://127.0.0.1:* || "$backend_api_url" == http://localhost:* || "$backend_api_url" == https://localhost:* ]]; then
-  fail "Docker 容器内不能用 127.0.0.1/localhost 访问宿主机后端，请改为: BACKEND_API_URL=http://host.docker.internal:<port>/v1"
+  if [[ "$backend_api_url" == http://127.0.0.1:* || "$backend_api_url" == https://127.0.0.1:* || "$backend_api_url" == http://localhost:* || "$backend_api_url" == https://localhost:* ]]; then
+    fail "Docker 容器内不能用 127.0.0.1/localhost 访问宿主机后端，请改为: BACKEND_API_URL=http://host.docker.internal:<port>/v1"
+  fi
 fi
 
 trust_certificate_if_possible() {

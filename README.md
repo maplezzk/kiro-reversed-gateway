@@ -10,11 +10,20 @@
 cp .env.example .env
 ```
 
-编辑 `.env`，至少填好：
+编辑 `.env`。
+
+走自定义 OpenAI 后端：
 
 ```env
+MODE=openai
 BACKEND_API_URL=http://<host>:<port>/v1
 BACKEND_API_KEY=<your-api-key>
+```
+
+纯官方转发：
+
+```env
+MODE=forward
 ```
 
 ### 2. 配置网络劫持
