@@ -6,15 +6,13 @@ services:
     ports:
       - "443:8443"
     env_file:
-      - .env
+      - ${DOCKER_ENV_FILE:-.env}
     environment:
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: 8443
       USE_TLS: "true"
       CERT_FILE: certs/cert.pem
       KEY_FILE: certs/key.pem
-      # 如果你的后端跑在宿主机，.env 里建议配置：
-      # BACKEND_API_URL=http://host.docker.internal:<port>/v1
     volumes:
       - ./certs:/app/certs:ro
 

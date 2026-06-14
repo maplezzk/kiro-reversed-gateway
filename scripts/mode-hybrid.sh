@@ -34,8 +34,7 @@ python3 - <<'PY'
 from pathlib import Path
 
 path = Path('.env')
-text = path.read_text()
-lines = text.splitlines()
+lines = path.read_text().splitlines()
 seen = False
 result: list[str] = []
 for line in lines:

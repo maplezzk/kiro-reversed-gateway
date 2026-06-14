@@ -311,13 +311,23 @@ def convert_kiro_to_openai(request: KiroRequest) -> Dict[str, Any]:
 
 
 def _merge_consecutive_same_role(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """合并连续相同角色的消息"""
+    """合并连续相同角色的普通文本消息。
+
+    Tool messages must never be merged: each OpenAI tool result is tied to a
+    distinct ``tool_call_id``. Merging two consecutive tool messages would drop
+    one id and trigger backend validation errors such as "tool call and result
+    not match".
+    """
     if not messages:
         return messages
 
     merged = []
     for msg in messages:
-        if merged and merged[-1]["role"] == msg["role"]:
+        if msg.get("role") == "tool":
+            merged.append(msg)
+            continue
+
+        if merged and merged[-1]["role"] == msg["role"] and merged[-1].get("role") != "tool":
             # 同角色合并内容
             prev_content = merged[-1].get("content", "")
             curr_content = msg.get("content", "")
@@ -334,13 +344,24 @@ def _merge_consecutive_same_role(messages: List[Dict[str, Any]]) -> List[Dict[st
 
 
 def _ensure_alternating(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """确保 user 和 assistant 交替出现"""
+    """确保普通 user/assistant 消息交替，同时保留 OpenAI tool 调用序列。
+
+    OpenAI allows multiple consecutive tool result messages after one assistant
+    message with multiple tool_calls. Do not insert synthetic assistant/user
+    messages between tool results.
+    """
     if not messages:
         return messages
 
     result = [messages[0]]
     for msg in messages[1:]:
         last_role = result[-1]["role"]
+        role = msg.get("role")
+
+        if role == "tool":
+            result.append(msg)
+            continue
+
         if msg["role"] == last_role:
             if msg["role"] == "user":
                 # 两个连续 user，插入假 assistant
@@ -348,10 +369,6 @@ def _ensure_alternating(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             elif msg["role"] == "assistant":
                 # 两个连续 assistant，插入假 user
                 result.append({"role": "user", "content": "Continue."})
-            elif msg["role"] == "tool":
-                # tool 消息：前面应该有 assistant，如果没有就插入
-                if last_role != "assistant":
-                    result.append({"role": "assistant", "content": "Okay."})
         result.append(msg)
 
     return result

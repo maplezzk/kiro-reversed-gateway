@@ -2,10 +2,38 @@ import AppKit
 
 private let defaultProjectPath = "~/CliProject/kiro-reversed-gateway"
 
-@main
+enum GatewayMode: String {
+    case openai
+    case hybrid
+    case forward
+    case unknown
+
+    var displayName: String {
+        switch self {
+        case .openai: return "OpenAI 代理"
+        case .hybrid: return "混合模式"
+        case .forward: return "官方直连"
+        case .unknown: return "未知"
+        }
+    }
+
+    var statusSymbolName: String {
+        switch self {
+        case .openai: return "arrow.triangle.2.circlepath.circle.fill"
+        case .hybrid: return "arrow.triangle.branch"
+        case .forward: return "bolt.circle.fill"
+        case .unknown: return "questionmark.circle.fill"
+        }
+    }
+}
+
 final class KiroGatewayMenuApp: NSObject, NSApplicationDelegate {
-    private var statusItem: NSStatusItem!
+    private var statusItem: NSStatusItem?
     private let menu = NSMenu()
+    private var currentMode: GatewayMode = .unknown
+    private var dockerStatus: String = "unknown"
+    private var statusText: String = "读取中..."
+
     private var projectPath: String {
         let saved = UserDefaults.standard.string(forKey: "projectPath") ?? defaultProjectPath
         return NSString(string: saved).expandingTildeInPath
@@ -13,37 +41,53 @@ final class KiroGatewayMenuApp: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        setMenuBarTitle("Kiro：启动中", symbolName: "hourglass")
-        statusItem.button?.toolTip = "Kiro Gateway 模式切换"
-        statusItem.menu = menu
-        rebuildMenu(statusText: "读取中…")
+        NSApp.disableRelaunchOnLogin()
+        createStatusItem()
+        rebuildMenu()
         refreshStatus(nil)
     }
 
-    private func rebuildMenu(statusText: String) {
+    private func createStatusItem() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem = item
+        item.isVisible = true
+        item.menu = menu
+        setMenuBarIcon(symbolName: "bolt.horizontal.circle.fill", tooltip: "Kiro Gateway 模式切换")
+    }
+
+    private func rebuildMenu() {
         menu.removeAllItems()
 
-        let statusItem = NSMenuItem(title: statusText, action: nil, keyEquivalent: "")
-        statusItem.isEnabled = false
-        menu.addItem(statusItem)
+        let statusMenuItem = NSMenuItem(title: statusText, action: nil, keyEquivalent: "")
+        statusMenuItem.isEnabled = false
+        menu.addItem(statusMenuItem)
         menu.addItem(NSMenuItem.separator())
 
-        menu.addItem(NSMenuItem(title: "切换到 OpenAI 代理模式", action: #selector(useOpenAIProxy), keyEquivalent: "o"))
-        menu.addItem(NSMenuItem(title: "切换到混合模式", action: #selector(useHybridMode), keyEquivalent: "h"))
-        menu.addItem(NSMenuItem(title: "切换到官方直连模式", action: #selector(useForwardMode), keyEquivalent: "f"))
+        let modeItem = NSMenuItem(title: "模式", action: nil, keyEquivalent: "")
+        let modeSubmenu = NSMenu(title: "模式")
+        modeSubmenu.addItem(makeModeItem(title: "OpenAI 代理", mode: .openai, action: #selector(useOpenAIProxy)))
+        modeSubmenu.addItem(makeModeItem(title: "混合模式", mode: .hybrid, action: #selector(useHybridMode)))
+        modeSubmenu.addItem(makeModeItem(title: "官方直连", mode: .forward, action: #selector(useForwardMode)))
+        modeItem.submenu = modeSubmenu
+        menu.addItem(modeItem)
+
         menu.addItem(NSMenuItem(title: "重启 Docker 服务", action: #selector(restartDocker), keyEquivalent: "r"))
         menu.addItem(NSMenuItem.separator())
 
         menu.addItem(NSMenuItem(title: "刷新状态", action: #selector(refreshStatus), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "打开项目目录", action: #selector(openProject), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "查看 Docker 日志", action: #selector(openDockerLogs), keyEquivalent: "l"))
         menu.addItem(NSMenuItem.separator())
 
         let pathItem = NSMenuItem(title: "项目: \(projectPath)", action: nil, keyEquivalent: "")
         pathItem.isEnabled = false
         menu.addItem(pathItem)
         menu.addItem(NSMenuItem(title: "退出", action: #selector(quit), keyEquivalent: "q"))
+    }
+
+    private func makeModeItem(title: String, mode: GatewayMode, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        item.state = currentMode == mode ? .on : .off
+        return item
     }
 
     @objc private func useOpenAIProxy() {
@@ -66,41 +110,16 @@ final class KiroGatewayMenuApp: NSObject, NSApplicationDelegate {
         let result = Shell.run("cd \(Shell.quote(projectPath)) && ./scripts/gateway-status.sh")
         if result.exitCode == 0 {
             let parsed = parseStatus(result.output)
-            let mode = parsed["MODE"] ?? "unknown"
-            let docker = parsed["DOCKER"] ?? "unknown"
-            let modeLabel = mode == "forward" ? "官方直连" : (mode == "hybrid" ? "混合模式" : (mode == "openai" ? "OpenAI 代理" : mode))
-            let statusText = "当前: \(modeLabel) / Docker: \(docker)"
-            let title: String
-            let symbolName: String
-            if mode == "forward" {
-                title = "Kiro：直连"
-                symbolName = "bolt.circle.fill"
-            } else if mode == "hybrid" {
-                title = "Kiro：混合"
-                symbolName = "arrow.triangle.branch"
-            } else {
-                title = "Kiro：OpenAI"
-                symbolName = "arrow.triangle.2.circlepath.circle.fill"
-            }
-            setMenuBarTitle(title, symbolName: symbolName)
-            statusItem.button?.toolTip = statusText
-            rebuildMenu(statusText: statusText)
+            currentMode = GatewayMode(rawValue: parsed["MODE"] ?? "") ?? .unknown
+            dockerStatus = parsed["DOCKER"] ?? "unknown"
+            statusText = "当前模式: \(currentMode.displayName) / Docker: \(dockerStatus)"
+            setMenuBarIcon(symbolName: currentMode.statusSymbolName, tooltip: statusText)
         } else {
-            setMenuBarTitle("Kiro：异常", symbolName: "exclamationmark.triangle.fill")
-            statusItem.button?.toolTip = "Kiro Gateway 状态读取失败"
-
-            rebuildMenu(statusText: "状态读取失败")
+            currentMode = .unknown
+            statusText = "状态读取失败"
+            setMenuBarIcon(symbolName: "exclamationmark.triangle.fill", tooltip: "Kiro Gateway 状态读取失败")
         }
-    }
-
-    @objc private func openProject() {
-        NSWorkspace.shared.open(URL(fileURLWithPath: projectPath))
-    }
-
-    @objc private func openDockerLogs() {
-        let command = "cd \(Shell.quote(projectPath)) && docker compose logs -f"
-        let script = "tell application \"Terminal\" to do script \"\(escapeAppleScript(command))\""
-        _ = Shell.run("osascript -e \(Shell.quote(script))")
+        rebuildMenu()
     }
 
     @objc private func quit() {
@@ -108,24 +127,23 @@ final class KiroGatewayMenuApp: NSObject, NSApplicationDelegate {
     }
 
     private func runProjectScript(_ command: String, successTitle: String) {
-        setMenuBarTitle("Kiro：切换中", symbolName: "hourglass")
-
+        setMenuBarIcon(symbolName: "hourglass", tooltip: "Kiro Gateway 正在切换模式")
         let result = Shell.run("cd \(Shell.quote(projectPath)) && \(command)")
-        if result.exitCode == 0 {
-            showAlert(title: successTitle, message: tail(result.output))
-        } else {
+        if result.exitCode != 0 {
             showAlert(title: "操作失败", message: tail(result.output + "\n" + result.error))
         }
         refreshStatus(nil)
     }
 
-    private func setMenuBarTitle(_ title: String, symbolName: String) {
-        guard let button = statusItem.button else { return }
-        button.title = title
-        button.imagePosition = .imageLeading
-        if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title) {
+    private func setMenuBarIcon(symbolName: String, tooltip: String) {
+        guard let button = statusItem?.button else { return }
+        button.title = ""
+        button.toolTip = tooltip
+        if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: tooltip) {
             image.isTemplate = true
+            image.size = NSSize(width: 18, height: 18)
             button.image = image
+            button.imagePosition = .imageOnly
         }
     }
 
@@ -155,10 +173,6 @@ final class KiroGatewayMenuApp: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func escapeAppleScript(_ text: String) -> String {
-        text.replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-    }
 }
 
 struct ShellResult {
@@ -193,3 +207,9 @@ enum Shell {
         "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
+
+let application = NSApplication.shared
+let applicationDelegate = KiroGatewayMenuApp()
+application.delegate = applicationDelegate
+application.setActivationPolicy(.accessory)
+application.run()

@@ -109,6 +109,8 @@ async def _build_backend_model_items(prefix_custom: bool = False) -> list[dict]:
             "modelProvider": item.get("modelProvider") or ("CUSTOM" if prefix_custom else "DEFAULT"),
             "rateMultiplier": item.get("rateMultiplier") or 1,
             "rateUnit": item.get("rateUnit") or "request",
+            "supportedInputTypes": item.get("supportedInputTypes") or ["TEXT", "IMAGE"],
+            "promptCaching": item.get("promptCaching") or {"supportsPromptCaching": False},
             "tokenLimits": {
                 "maxInputTokens": item.get("maxInputTokens") or item.get("context_length") or 200000,
                 "maxOutputTokens": item.get("maxOutputTokens") or 8192,
@@ -292,8 +294,8 @@ async def list_available_models(request: Request):
 @router.api_route("/GetUsageLimits", methods=["GET", "POST"])
 @router.api_route("/Get-Usage-Limits", methods=["GET", "POST"])
 async def get_usage_limits(request: Request):
-    """Return usage limits response or forward it in pure forward mode."""
-    if MODE == "forward":
+    """Return usage limits response or forward it in official-capable modes."""
+    if MODE in ("forward", "hybrid"):
         return await _handle_forward_mode(request)
     return await _build_usage_limits_response(request)
 
@@ -304,8 +306,8 @@ async def get_usage_limits(request: Request):
 @router.api_route("/GetProfile", methods=["GET", "POST"])
 @router.api_route("/Get-Profile", methods=["GET", "POST"])
 async def profile_endpoints(request: Request):
-    """Return profile responses or forward them in pure forward mode."""
-    if MODE == "forward":
+    """Return profile responses or forward them in official-capable modes."""
+    if MODE in ("forward", "hybrid"):
         return await _handle_forward_mode(request)
     return await _build_profile_response(request)
 
@@ -395,19 +397,23 @@ def _prepare_forward_upstream(request: Request, raw_body: bytes) -> tuple[str, d
 async def _fetch_forward_body(request: Request, raw_body: bytes | None = None) -> tuple[int, dict, bytes]:
     """Fetch a full official Kiro upstream response body."""
     body = await request.body() if raw_body is None else raw_body
-    target_url, fwd_headers, _, ip = _prepare_forward_upstream(request, body)
+    target_url, fwd_headers, host_header, ip = _prepare_forward_upstream(request, body)
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0),
         verify=False if ip else True,
         follow_redirects=False,
         trust_env=False,
     ) as client:
-        response = await client.request(
-            method=request.method,
-            url=target_url,
-            headers=fwd_headers,
-            content=body,
+        response = await client.send(
+            client.build_request(
+                method=request.method,
+                url=target_url,
+                headers=fwd_headers,
+                content=body,
+            ),
+            stream=False,
         )
+        logger.info(f"[FWD] Kiro 真实 API 响应: status={response.status_code}")
         out_headers = {
             k: v for k, v in response.headers.items()
             if k.lower() not in ("content-length", "transfer-encoding", "connection")
@@ -448,10 +454,7 @@ async def _build_hybrid_models_response(request: Request) -> Response:
             logger.warning(f"跳过与官方模型重名的自定义模型: {item.get('modelId')}")
             continue
         merged.append(item)
-    return _build_models_response(
-        merged,
-        log_stage="hybrid_list_available_models",
-    )
+    return _build_models_response(merged)
 
 
 async def _handle_forward_mode(request: Request) -> StreamingResponse:
@@ -747,8 +750,12 @@ async def catch_all(request: Request, path: str):
             logger.error(f"x-amz-target 获取 models 失败: {e}")
             raise HTTPException(status_code=502, detail=f"获取 models 失败: {e}")
     if "GetUsageLimits" in amz_target:
+        if MODE in ("forward", "hybrid"):
+            return await _handle_forward_mode(request)
         return await _build_usage_limits_response(request)
     if "ListAvailableProfiles" in amz_target or "GetProfile" in amz_target:
+        if MODE in ("forward", "hybrid"):
+            return await _handle_forward_mode(request)
         return await _build_profile_response(request)
 
     if "model" in request_path.lower():
@@ -761,9 +768,13 @@ async def catch_all(request: Request, path: str):
             raise HTTPException(status_code=502, detail=f"获取 models 失败: {e}")
 
     if "usage" in request_path.lower():
+        if MODE in ("forward", "hybrid"):
+            return await _handle_forward_mode(request)
         return await _build_usage_limits_response(request)
 
     if "profile" in request_path.lower():
+        if MODE in ("forward", "hybrid"):
+            return await _handle_forward_mode(request)
         return await _build_profile_response(request)
 
     if request_path in ("", "/") and target_name == "management":

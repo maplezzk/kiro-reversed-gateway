@@ -9,6 +9,11 @@ fail() {
   exit 1
 }
 
+get_env_value() {
+  local key="$1"
+  grep -E "^[[:space:]]*${key}=" .env | tail -n 1 | cut -d '=' -f 2- | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' | sed -E 's/^"(.*)"$/\1/' | sed -E "s/^'(.*)'$/\1/"
+}
+
 if [[ ! -f ".env" ]]; then
   fail ".env 不存在，请先 cp .env.example .env 并完成配置。"
 fi
@@ -17,8 +22,7 @@ python3 - <<'PY'
 from pathlib import Path
 
 path = Path('.env')
-text = path.read_text()
-lines = text.splitlines()
+lines = path.read_text().splitlines()
 seen = False
 result: list[str] = []
 for line in lines:
@@ -32,7 +36,7 @@ if not seen:
 path.write_text('\n'.join(result) + '\n')
 PY
 
-backend_url="$(grep -E '^[[:space:]]*BACKEND_API_URL=' .env | tail -n 1 | cut -d '=' -f 2- | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' || true)"
+backend_url="$(get_env_value BACKEND_API_URL || true)"
 if [[ -z "$backend_url" ]]; then
   fail "已切换 MODE=openai，但 BACKEND_API_URL 未配置。请先在 .env 中配置后端地址。"
 fi

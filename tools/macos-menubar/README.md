@@ -19,19 +19,14 @@ tools/macos-menubar/build/Kiro Gateway Menu.app
 启动：
 
 ```bash
-open "tools/macos-menubar/build/Kiro Gateway Menu.app"
+./scripts/build-menubar-app.sh
 ```
+
+该脚本会构建并直接启动菜单栏工具。
 
 ## 显示
 
-菜单栏标题直接显示当前状态：
-
-```text
-Kiro：OpenAI
-Kiro：混合
-Kiro：直连
-Kiro：异常
-```
+菜单栏以图标形式显示，悬停可查看当前状态。
 
 ## 功能
 
@@ -39,9 +34,9 @@ Kiro：异常
 - 切换到混合模式
 - 切换到官方直连模式
 - 重启 Docker 服务
-- 查看 Docker 日志
-- 打开项目目录
 - 刷新当前状态
+
+切换模式成功时不弹窗；失败时才弹出错误提示。
 
 ## 约定
 

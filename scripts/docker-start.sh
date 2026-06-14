@@ -17,7 +17,7 @@ Options:
   -h, --help       显示帮助
 
 Notes:
-  - 如果后端跑在宿主机，.env 里 BACKEND_API_URL 应使用 http://host.docker.internal:<port>/v1
+  - 如果后端跑在宿主机，脚本会自动把 127.0.0.1/localhost 替换为 host.docker.internal
   - /etc/hosts 仍然在宿主机配置
   - 如果 certs/cert.pem 或 certs/key.pem 不存在，脚本会自动生成一次；已存在时不会重新生成
   - macOS 上脚本会按证书指纹自动信任；证书没变不会重复执行
@@ -59,6 +59,66 @@ fail() {
   exit 1
 }
 
+get_env_value() {
+  local key="$1"
+  grep -E "^[[:space:]]*${key}=" .env | tail -n 1 | cut -d '=' -f 2- | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' | sed -E 's/^"(.*)"$/\1/' | sed -E "s/^'(.*)'$/\1/"
+}
+
+rewrite_env_value() {
+  local key="$1"
+  local value="$2"
+  python3 - "$key" "$value" <<'PY'
+from pathlib import Path
+import sys
+
+key = sys.argv[1]
+value = sys.argv[2]
+path = Path('.env')
+lines = path.read_text().splitlines()
+result = []
+replaced = False
+prefix = f"{key}="
+for line in lines:
+    if line.strip().startswith(prefix):
+        result.append(prefix + value)
+        replaced = True
+    else:
+        result.append(line)
+if not replaced:
+    result.append(prefix + value)
+path.write_text('\n'.join(result) + '\n')
+PY
+}
+
+normalize_backend_api_url_for_docker() {
+  python3 - "$1" <<'PY'
+from urllib.parse import urlparse, urlunparse
+import sys
+
+value = sys.argv[1]
+parsed = urlparse(value)
+if parsed.scheme not in ("http", "https") or not parsed.netloc:
+    print(value)
+    raise SystemExit(0)
+
+host = parsed.hostname or ""
+if host not in ("127.0.0.1", "localhost"):
+    print(value)
+    raise SystemExit(0)
+
+netloc = "host.docker.internal"
+if parsed.port:
+    netloc = f"{netloc}:{parsed.port}"
+if parsed.username:
+    auth = parsed.username
+    if parsed.password:
+        auth = f"{auth}:{parsed.password}"
+    netloc = f"{auth}@{netloc}"
+
+print(urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)))
+PY
+}
+
 if ! command -v docker >/dev/null 2>&1; then
   fail "未找到 docker，请先安装 Docker Desktop"
 fi
@@ -76,25 +136,25 @@ if [[ ! -f ".env" ]]; then
   fail ".env 不存在，且找不到 .env.example"
 fi
 
-mkdir -p certs
-
-get_env_value() {
-  local key="$1"
-  grep -E "^[[:space:]]*${key}=" .env | tail -n 1 | cut -d '=' -f 2- | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' | sed -E 's/^"(.*)"$/\1/' | sed -E "s/^'(.*)'$/\1/"
-}
-
 mode="$(get_env_value MODE || true)"
 mode="${mode:-openai}"
 forward_target="$(get_env_value FORWARD_TARGET || true)"
 forward_target="${forward_target:-auto}"
 backend_api_url="$(get_env_value BACKEND_API_URL || true)"
+
+if [[ "$mode" != "openai" && "$mode" != "forward" && "$mode" != "hybrid" ]]; then
+  fail "MODE 只能是 openai、forward 或 hybrid，当前值: $mode"
+fi
+
 if [[ "$mode" == "openai" || "$mode" == "hybrid" ]]; then
   if [[ -z "$backend_api_url" ]]; then
     fail "MODE=$mode 时必须配置 BACKEND_API_URL。Docker 模式下推荐: BACKEND_API_URL=http://host.docker.internal:<port>/v1"
   fi
-
-  if [[ "$backend_api_url" == http://127.0.0.1:* || "$backend_api_url" == https://127.0.0.1:* || "$backend_api_url" == http://localhost:* || "$backend_api_url" == https://localhost:* ]]; then
-    fail "Docker 容器内不能用 127.0.0.1/localhost 访问宿主机后端，请改为: BACKEND_API_URL=http://host.docker.internal:<port>/v1"
+  normalized_backend_api_url="$(normalize_backend_api_url_for_docker "$backend_api_url")"
+  if [[ "$normalized_backend_api_url" != "$backend_api_url" ]]; then
+    info "已自动将 BACKEND_API_URL 从本机地址替换为 Docker 宿主地址: $normalized_backend_api_url"
+    rewrite_env_value "BACKEND_API_URL" "$normalized_backend_api_url"
+    backend_api_url="$normalized_backend_api_url"
   fi
 fi
 
@@ -131,8 +191,6 @@ if [[ "$mode" == "forward" || "$mode" == "hybrid" ]]; then
   if [[ ${#missing_forward_ips[@]} -gt 0 ]]; then
     fail "MODE=$mode 必须配置对应官方上游 IP。当前 FORWARD_TARGET=$forward_target，缺少: ${missing_forward_ips[*]}"
   fi
-elif [[ "$mode" != "openai" ]]; then
-  fail "MODE 只能是 openai、forward 或 hybrid，当前值: $mode"
 fi
 
 trust_certificate_if_possible() {

@@ -26,9 +26,7 @@ fi
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
 swiftc "$SOURCE" \
-  -parse-as-library \
   -O \
-  -framework AppKit \
   -o "$MACOS_DIR/$EXECUTABLE"
 
 cat > "$CONTENTS_DIR/Info.plist" <<EOF
@@ -50,6 +48,8 @@ cat > "$CONTENTS_DIR/Info.plist" <<EOF
   <string>0.1.0</string>
   <key>CFBundleVersion</key>
   <string>1</string>
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
   <key>LSMinimumSystemVersion</key>
   <string>12.0</string>
   <key>LSUIElement</key>
@@ -60,5 +60,10 @@ EOF
 
 chmod +x "$MACOS_DIR/$EXECUTABLE"
 
+# 确保启动的是最新构建，避免旧实例还挂在菜单栏/后台。
+pkill -f "/Kiro Gateway Menu.app/Contents/MacOS/KiroGatewayMenu" 2>/dev/null || true
+sleep 0.3
+
 echo "已构建: $APP_DIR"
-echo "启动: open '$APP_DIR'"
+echo "正在启动菜单栏工具..."
+open "$APP_DIR"
