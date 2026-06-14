@@ -702,8 +702,8 @@ docker-compose.yml
 
 - 工作目录：`/app`
 - 安装 `requirements.txt`
-- 暴露端口：`443`、`8443`
-- 默认命令：`python main.py --port 443`
+- 暴露端口：`8443`
+- 默认命令：`python main.py --port 8443`
 - 使用非 root 用户 `kiro` 运行应用
 
 ### 18.2 Compose 行为
@@ -715,14 +715,13 @@ ports:
   - "443:8443"
 volumes:
   - ./certs:/app/certs:ro
-  - ./debug_logs:/app/debug_logs
 ```
 
 也就是说：
 
 - 宿主机 `443` 会转到容器 `8443`
 - TLS 证书从宿主机只读挂载
-- debug 日志写回宿主机目录
+- 日志通过 `docker compose logs` 查看，不再挂载 `debug_logs/` 到宿主机
 
 ### 18.3 后端在宿主机时的 URL
 
@@ -810,8 +809,7 @@ docker compose exec kiro-reversed-gateway sh
 
 - 检查 Docker 和 `docker compose` 是否可用
 - 检查 `.env` 是否存在；不存在时从 `.env.example` 复制并退出
-- 创建 `certs/` 和 `debug_logs/`
-- 默认执行 `chmod 777 debug_logs`，避免容器内非 root 用户无法写日志
+- 创建 `certs/`
 - 检查 `BACKEND_API_URL`，Docker 模式下发现 `127.0.0.1` 或 `localhost` 会直接退出并提示改成 `host.docker.internal`
 - 没有证书时自动生成自签名证书
 - 执行 `docker compose up -d --build`
@@ -868,31 +866,16 @@ BACKEND_API_URL=http://host.docker.internal:<port>/v1
 - `./certs/key.pem` 存在
 - `cert.pem` 已在 macOS 系统钥匙串信任
 
-#### debug_logs 权限问题
+### 18.9 查看日志
 
-Compose 会把 `./debug_logs` 挂载到容器。容器内应用使用非 root 用户运行，如果宿主机目录权限不允许写入，会出现：
-
-```text
-Permission denied: '/app/debug_logs/*.jsonl'
-```
-
-`./scripts/docker-start.sh` 默认会自动修复权限：
+容器内的日志直接看：
 
 ```bash
-chmod 777 debug_logs
+docker compose logs -f
 ```
 
-如果普通 `chmod` 失败，脚本会尝试：
+如果想看单个容器：
 
 ```bash
-sudo chown -R "$(id -u):$(id -g)" debug_logs
-sudo chmod 777 debug_logs
+docker logs -f kiro-reversed-gateway
 ```
-
-如果你禁用了自动修复：
-
-```bash
-./scripts/docker-start.sh --no-fix-permissions
-```
-
-则需要自己在宿主机处理目录权限。

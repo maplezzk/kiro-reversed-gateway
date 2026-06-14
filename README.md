@@ -197,12 +197,6 @@ sudo security add-trusted-cert -d -r trustRoot \
 
 # 启动后跟随日志
 ./scripts/docker-start.sh --logs
-
-# 启动前修复 debug_logs 写入权限
-./scripts/docker-start.sh --fix-permissions
-
-# 不修复 debug_logs 写入权限
-./scripts/docker-start.sh --no-fix-permissions
 ```
 
 等价 Docker Compose 命令：
@@ -245,7 +239,13 @@ docker compose down
 BACKEND_API_URL=http://host.docker.internal:<port>/v1
 ```
 
-- `scripts/docker-start.sh` 默认会先尝试修复 `debug_logs` 写入权限；如果目录是 root 拥有，它会自动提示并尝试用 `sudo` 修复
+- 查看容器日志直接用：
+
+```bash
+docker compose logs -f
+```
+
+- `scripts/docker-start.sh` 默认会检查 Docker 后端地址是否写成 `127.0.0.1/localhost`；如果是，会直接退出并提示改成 `host.docker.internal`
 
 ---
 

@@ -17,4 +17,3 @@ services:
       # BACKEND_API_URL=http://host.docker.internal:<port>/v1
     volumes:
       - ./certs:/app/certs:ro
-      - ./debug_logs:/app/debug_logs
