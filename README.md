@@ -108,8 +108,14 @@ BACKEND_API_URL=http://host.docker.internal:<port>/v1
 Docker 启动会同时暴露：
 
 ```text
-127.0.0.1:443   -> HTTPS 网关
-127.0.0.1:7898  -> Clash 用的 HTTP CONNECT 代理
+127.0.0.1:443                   -> HTTPS 网关
+127.0.0.1:${CONNECT_PROXY_PORT}  -> Clash 用的 HTTP CONNECT 代理
+```
+
+端口可在 `.env` 配置，默认是：
+
+```env
+CONNECT_PROXY_PORT=7898
 ```
 
 启动：
@@ -124,7 +130,7 @@ Docker 启动会同时暴露：
 ./scripts/start-connect-proxy.sh
 ```
 
-默认监听：
+默认监听 `.env` 里的 `CONNECT_PROXY_PORT`：
 
 ```text
 127.0.0.1:7898
@@ -137,7 +143,7 @@ proxies:
   - name: KiroGateway
     type: http
     server: 127.0.0.1
-    port: 7898
+    port: 7898  # 跟 .env 的 CONNECT_PROXY_PORT 保持一致
 
 rules:
   - DOMAIN,runtime.us-east-1.kiro.dev,KiroGateway

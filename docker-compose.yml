@@ -30,10 +30,10 @@ services:
       - --listen-host
       - 0.0.0.0
       - --listen-port
-      - "7898"
+      - "${CONNECT_PROXY_PORT:-7898}"
       - --target-host
       - kiro-reversed-gateway
       - --target-port
       - "8443"
     ports:
-      - "7898:7898"
+      - "${CONNECT_PROXY_PORT:-7898}:${CONNECT_PROXY_PORT:-7898}"
