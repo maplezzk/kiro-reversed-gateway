@@ -8,8 +8,6 @@ FastAPI 路由 —— 暴露 Kiro API 兼容端点。
 """
 
 import json
-import os
-import ssl
 import struct
 import time
 import traceback
@@ -17,7 +15,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
-import httpcore
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse, Response
 from loguru import logger
@@ -37,61 +34,6 @@ router = APIRouter()
 # JSONL 日志目录
 LOG_DIR = Path(__file__).parent.parent / "debug_logs"
 LOG_DIR.mkdir(exist_ok=True)
-
-
-class HostOverrideAsyncNetworkBackend(httpcore.AsyncNetworkBackend):
-    """Connect selected hostnames to fixed IPs while preserving TLS SNI."""
-
-    def __init__(self, host_to_ip: dict[str, str]):
-        self.host_to_ip = host_to_ip
-        self.backend = httpcore.AnyIOBackend()
-
-    async def connect_tcp(
-        self,
-        host: str,
-        port: int,
-        timeout: float | None = None,
-        local_address: str | None = None,
-        socket_options=None,
-    ) -> httpcore.AsyncNetworkStream:
-        connect_host = self.host_to_ip.get(host, host)
-        return await self.backend.connect_tcp(
-            connect_host,
-            port,
-            timeout=timeout,
-            local_address=local_address,
-            socket_options=socket_options,
-        )
-
-    async def connect_unix_socket(
-        self,
-        path: str,
-        timeout: float | None = None,
-        socket_options=None,
-    ) -> httpcore.AsyncNetworkStream:
-        return await self.backend.connect_unix_socket(
-            path,
-            timeout=timeout,
-            socket_options=socket_options,
-        )
-
-    async def sleep(self, seconds: float) -> None:
-        await self.backend.sleep(seconds)
-
-
-class HostOverrideAsyncHTTPTransport(httpx.AsyncHTTPTransport):
-    """HTTP transport that bypasses local DNS/hosts for selected upstream hosts."""
-
-    def __init__(self, host_to_ip: dict[str, str]):
-        self._pool = httpcore.AsyncConnectionPool(
-            ssl_context=ssl._create_unverified_context(),
-            max_connections=10,
-            max_keepalive_connections=0,
-            keepalive_expiry=0.0,
-            http1=True,
-            http2=False,
-            network_backend=HostOverrideAsyncNetworkBackend(host_to_ip),
-        )
 
 
 def _save_log(conv_id: str, stage: str, data) -> None:
@@ -435,21 +377,18 @@ async def _handle_forward_mode(request: Request) -> StreamingResponse:
         fwd_headers[k] = v
     fwd_headers["host"] = host_header
 
-    disable_sni = os.getenv("FORWARD_DISABLE_SNI", "false").strip().lower() in ("true", "1", "yes")
-    url_host = ip if ip and disable_sni else host_header
+    url_host = ip or host_header
     target_url = f"https://{url_host}{request.url.path}"
     if request.url.query:
         target_url += f"?{request.url.query}"
     logger.info(
         f"[FWD] -> {host_header}({ip}){request.url.path} "
-        f"({len(raw_body)} bytes, disable_sni={disable_sni})"
+        f"({len(raw_body)} bytes, upstream_host={url_host})"
     )
 
-    transport = HostOverrideAsyncHTTPTransport({host_header: ip}) if ip and not disable_sni else None
     client = httpx.AsyncClient(
         timeout=httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0),
-        transport=transport,
-        verify=False if ip and disable_sni else True,
+        verify=False if ip else True,
         follow_redirects=False,
         trust_env=False,
     )
