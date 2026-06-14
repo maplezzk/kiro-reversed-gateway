@@ -197,6 +197,12 @@ sudo security add-trusted-cert -d -r trustRoot \
 
 # 启动后跟随日志
 ./scripts/docker-start.sh --logs
+
+# 启动前修复 debug_logs 写入权限
+./scripts/docker-start.sh --fix-permissions
+
+# 不修复 debug_logs 写入权限
+./scripts/docker-start.sh --no-fix-permissions
 ```
 
 等价 Docker Compose 命令：
@@ -233,22 +239,13 @@ docker compose down
 
 ### 5. 网络注意事项
 
-- `/etc/hosts` 仍然改宿主机，不是容器
-- 宿主机仍然需要：
+- 如果后端跑在宿主机，容器内不能用 `127.0.0.1` 或 `localhost`，要用：
 
-```text
-127.0.0.1 runtime.us-east-1.kiro.dev
-127.0.0.1 management.us-east-1.kiro.dev
+```env
+BACKEND_API_URL=http://host.docker.internal:<port>/v1
 ```
 
-- `docker-compose.yml` 会映射：
-
-```text
-443:8443
-```
-
-- 证书挂载到容器，但信任证书仍然在宿主机执行
-- `debug_logs/` 会挂载出来，方便排障
+- `scripts/docker-start.sh` 默认会先尝试修复 `debug_logs` 写入权限；如果目录是 root 拥有，它会自动提示并尝试用 `sudo` 修复
 
 ---
 

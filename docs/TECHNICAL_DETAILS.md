@@ -811,6 +811,8 @@ docker compose exec kiro-reversed-gateway sh
 - 检查 Docker 和 `docker compose` 是否可用
 - 检查 `.env` 是否存在；不存在时从 `.env.example` 复制并退出
 - 创建 `certs/` 和 `debug_logs/`
+- 默认执行 `chmod 777 debug_logs`，避免容器内非 root 用户无法写日志
+- 检查 `BACKEND_API_URL`，Docker 模式下发现 `127.0.0.1` 或 `localhost` 会直接退出并提示改成 `host.docker.internal`
 - 没有证书时自动生成自签名证书
 - 执行 `docker compose up -d --build`
 - 可选 `--logs` 跟随日志
@@ -837,11 +839,26 @@ sudo lsof -i :443
 
 #### 后端连接失败
 
-如果后端跑在宿主机，确认使用：
+如果日志里出现：
+
+```text
+All connection attempts failed
+```
+
+并且你的后端跑在宿主机，检查 `.env`，不要使用：
+
+```env
+BACKEND_API_URL=http://127.0.0.1:<port>/v1
+BACKEND_API_URL=http://localhost:<port>/v1
+```
+
+应该使用：
 
 ```env
 BACKEND_API_URL=http://host.docker.internal:<port>/v1
 ```
+
+`./scripts/docker-start.sh` 会在启动前检测这个问题，发现后直接退出。
 
 #### 证书报错
 
@@ -853,9 +870,29 @@ BACKEND_API_URL=http://host.docker.internal:<port>/v1
 
 #### debug_logs 权限问题
 
-Compose 会把 `./debug_logs` 挂载到容器。若出现权限问题，可在宿主机执行：
+Compose 会把 `./debug_logs` 挂载到容器。容器内应用使用非 root 用户运行，如果宿主机目录权限不允许写入，会出现：
+
+```text
+Permission denied: '/app/debug_logs/*.jsonl'
+```
+
+`./scripts/docker-start.sh` 默认会自动修复权限：
 
 ```bash
-mkdir -p debug_logs
 chmod 777 debug_logs
 ```
+
+如果普通 `chmod` 失败，脚本会尝试：
+
+```bash
+sudo chown -R "$(id -u):$(id -g)" debug_logs
+sudo chmod 777 debug_logs
+```
+
+如果你禁用了自动修复：
+
+```bash
+./scripts/docker-start.sh --no-fix-permissions
+```
+
+则需要自己在宿主机处理目录权限。

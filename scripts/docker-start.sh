@@ -6,15 +6,18 @@ cd "$ROOT_DIR"
 
 BUILD="true"
 FOLLOW_LOGS="false"
+FIX_PERMISSIONS="true"
 
 show_help() {
   cat <<'EOF'
 Usage: ./scripts/docker-start.sh [options]
 
 Options:
-  --no-build       不重新构建镜像，直接启动
-  --logs           启动后跟随日志
-  -h, --help       显示帮助
+  --no-build              不重新构建镜像，直接启动
+  --logs                  启动后跟随日志
+  --fix-permissions       启动前修复 debug_logs 写入权限，默认开启
+  --no-fix-permissions    不修复 debug_logs 权限
+  -h, --help              显示帮助
 
 Notes:
   - 如果后端跑在宿主机，.env 里 BACKEND_API_URL 应使用 http://host.docker.internal:<port>/v1
@@ -30,6 +33,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --logs)
       FOLLOW_LOGS="true"
+      shift
+      ;;
+    --fix-permissions)
+      FIX_PERMISSIONS="true"
+      shift
+      ;;
+    --no-fix-permissions)
+      FIX_PERMISSIONS="false"
       shift
       ;;
     -h|--help)
@@ -75,6 +86,33 @@ if [[ ! -f ".env" ]]; then
 fi
 
 mkdir -p certs debug_logs
+
+get_env_value() {
+  local key="$1"
+  grep -E "^[[:space:]]*${key}=" .env | tail -n 1 | cut -d '=' -f 2- | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' | sed -E 's/^"(.*)"$/\1/' | sed -E "s/^'(.*)'$/\1/"
+}
+
+backend_api_url="$(get_env_value BACKEND_API_URL || true)"
+if [[ -z "$backend_api_url" ]]; then
+  fail "BACKEND_API_URL 未配置。Docker 模式下推荐: BACKEND_API_URL=http://host.docker.internal:<port>/v1"
+fi
+
+if [[ "$backend_api_url" == http://127.0.0.1:* || "$backend_api_url" == https://127.0.0.1:* || "$backend_api_url" == http://localhost:* || "$backend_api_url" == https://localhost:* ]]; then
+  fail "Docker 容器内不能用 127.0.0.1/localhost 访问宿主机后端，请改为: BACKEND_API_URL=http://host.docker.internal:<port>/v1"
+fi
+
+if [[ "$FIX_PERMISSIONS" == "true" ]]; then
+  info "修复 debug_logs 写入权限"
+  if ! chmod 777 debug_logs 2>/dev/null; then
+    if command -v sudo >/dev/null 2>&1 && [[ "$(id -u)" -ne 0 ]]; then
+      warn "普通 chmod 失败，尝试 sudo 修复 debug_logs 权限"
+      sudo chown -R "$(id -u):$(id -g)" debug_logs
+      sudo chmod 777 debug_logs
+    else
+      fail "debug_logs 无法写入，请手动执行: sudo chown -R \"$(id -u):$(id -g)\" debug_logs && chmod 777 debug_logs"
+    fi
+  fi
+fi
 
 if [[ ! -f "certs/cert.pem" || ! -f "certs/key.pem" ]]; then
   warn "未找到 TLS 证书，正在生成自签名证书。"
