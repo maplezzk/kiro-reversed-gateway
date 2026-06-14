@@ -637,3 +637,49 @@ curl -vk https://runtime.us-east-1.kiro.dev/health
 ```
 
 更直接的验证是看代理日志：如果 Kiro 操作后 `debug_logs/` 完全没有新增请求，通常就是域名没有正确打到本地代理。
+
+---
+
+## 17. 一键启动脚本
+
+项目提供：
+
+```bash
+./scripts/start.sh
+```
+
+脚本职责：
+
+- 检查 `.env` 是否存在；不存在时从 `.env.example` 复制并退出，要求用户先编辑配置
+- 自动创建 `.venv`
+- 安装 `requirements.txt`
+- TLS 模式下检查 `certs/cert.pem` 和 `certs/key.pem`
+- 没有证书时自动生成覆盖 runtime / management 的自签名证书
+- 443 端口需要 root 权限时自动用 `sudo -E` 重启
+- 最终调用 `main.py`，由应用执行启动前配置校验
+
+常用参数：
+
+```bash
+./scripts/start.sh
+./scripts/start.sh --no-tls --port 8443
+./scripts/start.sh --skip-install
+./scripts/start.sh --host 127.0.0.1 --port 8443 --no-tls
+./scripts/start.sh --help
+```
+
+环境变量覆盖：
+
+```bash
+PYTHON_BIN=python3.12 ./scripts/start.sh
+VENV_DIR=.venv ./scripts/start.sh
+SKIP_INSTALL=true ./scripts/start.sh
+NO_TLS=true PORT=8443 ./scripts/start.sh
+```
+
+注意：脚本可以生成证书，但不能替用户信任证书。macOS 上仍需执行：
+
+```bash
+sudo security add-trusted-cert -d -r trustRoot \
+  -k /Library/Keychains/System.keychain certs/cert.pem
+```

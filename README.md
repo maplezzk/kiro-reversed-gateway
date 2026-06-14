@@ -32,22 +32,12 @@ Kiro IDE
 
 ## 快速开始
 
-### 1. 安装依赖
-
-```bash
-cd ~/CliProject/kiro-reversed-gateway
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -r requirements.txt
-```
-
----
-
-### 2. 配置 `.env`
+### 1. 配置 `.env`
 
 复制模板：
 
 ```bash
+cd ~/CliProject/kiro-reversed-gateway
 cp .env.example .env
 ```
 
@@ -82,20 +72,35 @@ LOG_LEVEL=INFO
 
 ---
 
-### 3. 生成 TLS 证书
+### 2. 一键启动
 
 ```bash
-mkdir -p certs
-
-openssl req -x509 -newkey rsa:4096 \
-  -keyout certs/key.pem \
-  -out certs/cert.pem \
-  -days 365 -nodes \
-  -subj "/CN=runtime.us-east-1.kiro.dev" \
-  -addext "subjectAltName=DNS:runtime.us-east-1.kiro.dev,DNS:management.us-east-1.kiro.dev,DNS:*.kiro.dev"
+./scripts/start.sh
 ```
 
-信任证书：
+脚本会自动：
+
+- 创建 `.venv`
+- 安装依赖
+- 检查 `.env`
+- 没有证书时生成自签名证书
+- 443 端口需要权限时自动切换 `sudo`
+- 启动前做核心配置校验
+
+常用参数：
+
+```bash
+# HTTP 调试模式
+./scripts/start.sh --no-tls --port 8443
+
+# 跳过依赖安装，加快重复启动
+./scripts/start.sh --skip-install
+
+# 查看帮助
+./scripts/start.sh --help
+```
+
+如果脚本首次生成了证书，仍然需要在 macOS 上信任证书：
 
 ```bash
 sudo security add-trusted-cert -d -r trustRoot \
@@ -106,7 +111,7 @@ sudo security add-trusted-cert -d -r trustRoot \
 
 ---
 
-### 4. 配置 hosts
+### 3. 配置 hosts
 
 把 Kiro 域名指向本机：
 
@@ -125,25 +130,7 @@ grep 'kiro.dev' /etc/hosts
 
 ---
 
-### 5. 启动代理
-
-443 端口需要 sudo：
-
-```bash
-sudo .venv/bin/python main.py --port 443
-```
-
-如果只想本地 HTTP 调试：
-
-```bash
-.venv/bin/python main.py --no-tls --port 8443
-```
-
-启动时会检查核心配置。如果缺少 `BACKEND_API_URL`、证书不存在、URL 仍是占位符等，服务会直接退出。
-
----
-
-### 6. 重启 Kiro
+### 4. 重启 Kiro
 
 ```bash
 osascript -e 'quit app "Kiro"'
