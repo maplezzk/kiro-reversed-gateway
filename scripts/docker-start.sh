@@ -94,6 +94,10 @@ if [[ "$mode" == "openai" ]]; then
   if [[ "$backend_api_url" == http://127.0.0.1:* || "$backend_api_url" == https://127.0.0.1:* || "$backend_api_url" == http://localhost:* || "$backend_api_url" == https://localhost:* ]]; then
     fail "Docker 容器内不能用 127.0.0.1/localhost 访问宿主机后端，请改为: BACKEND_API_URL=http://host.docker.internal:<port>/v1"
   fi
+elif [[ "$mode" != "forward" ]]; then
+  fail "MODE 只能是 openai 或 forward，当前值: $mode"
+else
+  warn "MODE=forward 会纯转发官方接口；如果宿主机 hosts 仍劫持 kiro.dev，请确保已配置可用的 KIRO_*_IP 或临时移除 hosts 劫持。"
 fi
 
 trust_certificate_if_possible() {

@@ -176,12 +176,11 @@ def validate_startup_config(host: str, port: int, use_tls: bool) -> None:
         if KEY_FILE and not Path(KEY_FILE).is_file():
             errors.append(f"TLS 私钥不存在: {Path(KEY_FILE).resolve()}")
 
-    if mode == "forward" and forward_target in {"auto", "runtime", "management", "q"}:
-        if not any(os.getenv(name, "").strip() for name in ("KIRO_RUNTIME_IP", "KIRO_MANAGEMENT_IP", "KIRO_Q_IP")):
-            warnings.append(
-                "MODE=forward 且宿主机 hosts 劫持 kiro.dev 时，容器/进程可能回环；"
-                "必要时配置 KIRO_RUNTIME_IP/KIRO_MANAGEMENT_IP/KIRO_Q_IP"
-            )
+    if mode == "forward":
+        logger.warning(
+            "MODE=forward 会纯转发官方接口。若 /etc/hosts 仍劫持 kiro.dev 到本机，"
+            "需要配置可用的 KIRO_*_IP 或临时移除 hosts 劫持，否则可能回环。"
+        )
 
     if warnings:
         for warning in warnings:

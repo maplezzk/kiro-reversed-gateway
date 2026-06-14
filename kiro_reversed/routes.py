@@ -8,6 +8,7 @@ FastAPI 路由 —— 暴露 Kiro API 兼容端点。
 """
 
 import json
+import os
 import ssl
 import struct
 import time
@@ -434,15 +435,21 @@ async def _handle_forward_mode(request: Request) -> StreamingResponse:
         fwd_headers[k] = v
     fwd_headers["host"] = host_header
 
-    target_url = f"https://{host_header}{request.url.path}"
+    disable_sni = os.getenv("FORWARD_DISABLE_SNI", "false").strip().lower() in ("true", "1", "yes")
+    url_host = ip if ip and disable_sni else host_header
+    target_url = f"https://{url_host}{request.url.path}"
     if request.url.query:
         target_url += f"?{request.url.query}"
-    logger.info(f"[FWD] -> {host_header}({ip}){request.url.path} ({len(raw_body)} bytes)")
+    logger.info(
+        f"[FWD] -> {host_header}({ip}){request.url.path} "
+        f"({len(raw_body)} bytes, disable_sni={disable_sni})"
+    )
 
-    transport = HostOverrideAsyncHTTPTransport({host_header: ip}) if ip else None
+    transport = HostOverrideAsyncHTTPTransport({host_header: ip}) if ip and not disable_sni else None
     client = httpx.AsyncClient(
         timeout=httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0),
         transport=transport,
+        verify=False if ip and disable_sni else True,
         follow_redirects=False,
         trust_env=False,
     )
