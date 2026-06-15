@@ -144,11 +144,7 @@ BACKEND_API_URL=http://host.docker.internal:<port>/v1
 
 切换模式成功时不会弹窗；失败时才会弹出错误提示。
 
-菜单栏工具默认项目路径：
-
-```text
-~/CliProject/kiro-reversed-gateway
-```
+菜单栏工具会在构建时记录当前项目目录，不再写死固定路径。
 
 ## 提示
 

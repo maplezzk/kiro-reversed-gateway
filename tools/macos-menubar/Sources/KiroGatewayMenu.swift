@@ -1,6 +1,6 @@
 import AppKit
 
-private let defaultProjectPath = "~/CliProject/kiro-reversed-gateway"
+private let projectRootResourceName = "project-root"
 
 enum GatewayMode: String {
     case openai
@@ -35,8 +35,40 @@ final class KiroGatewayMenuApp: NSObject, NSApplicationDelegate {
     private var statusText: String = "读取中..."
 
     private var projectPath: String {
-        let saved = UserDefaults.standard.string(forKey: "projectPath") ?? defaultProjectPath
-        return NSString(string: saved).expandingTildeInPath
+        if let saved = UserDefaults.standard.string(forKey: "projectPath"), !saved.isEmpty {
+            return NSString(string: saved).expandingTildeInPath
+        }
+        if let bundled = bundledProjectPath() {
+            return bundled
+        }
+        if let inferred = inferredProjectPathFromBundle() {
+            return inferred
+        }
+        return FileManager.default.currentDirectoryPath
+    }
+
+    private func bundledProjectPath() -> String? {
+        guard let url = Bundle.main.url(forResource: projectRootResourceName, withExtension: "txt"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else {
+            return nil
+        }
+        let path = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if path.isEmpty {
+            return nil
+        }
+        return NSString(string: path).expandingTildeInPath
+    }
+
+    private func inferredProjectPathFromBundle() -> String? {
+        var url = Bundle.main.bundleURL
+        for _ in 0..<4 {
+            url.deleteLastPathComponent()
+        }
+        let statusScript = url.appendingPathComponent("scripts/gateway-status.sh").path
+        if FileManager.default.fileExists(atPath: statusScript) {
+            return url.path
+        }
+        return nil
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

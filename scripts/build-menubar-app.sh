@@ -24,6 +24,7 @@ if ! command -v swiftc >/dev/null 2>&1; then
 fi
 
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
+printf '%s\n' "$ROOT_DIR" > "$RESOURCES_DIR/project-root.txt"
 
 swiftc "$SOURCE" \
   -O \

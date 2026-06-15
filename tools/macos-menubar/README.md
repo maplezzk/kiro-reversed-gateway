@@ -40,11 +40,7 @@ tools/macos-menubar/build/Kiro Gateway Menu.app
 
 ## 约定
 
-当前第一版默认项目路径为：
-
-```text
-~/CliProject/kiro-reversed-gateway
-```
+构建脚本会把当前项目目录写入 App 资源文件，菜单栏工具启动后按这个目录执行脚本。
 
 切换模式后默认调用 Docker：
 
