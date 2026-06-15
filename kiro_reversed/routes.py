@@ -8,6 +8,7 @@ FastAPI 路由 —— 暴露 Kiro API 兼容端点。
 """
 
 import json
+import re
 import struct
 import time
 import traceback
@@ -91,6 +92,36 @@ def _build_models_response(models: list[dict], log_stage: str = "list_available_
     )
 
 
+def _parse_context_length_from_model_id(model_id: str) -> int | None:
+    """Parse context length suffix from a model id.
+
+    Supported suffix examples:
+    - ``model-name[256k]`` -> 256000
+    - ``model-name[1m]`` -> 1000000
+    """
+    match = re.search(r"\[\s*(\d+(?:\.\d+)?)\s*([kKmM])\s*\]\s*$", model_id)
+    if not match:
+        return None
+
+    value = float(match.group(1))
+    unit = match.group(2).lower()
+    multiplier = 1_000 if unit == "k" else 1_000_000
+    return int(value * multiplier)
+
+
+def _get_backend_model_context_length(item: dict, raw_model_id: str) -> int:
+    """Return max input tokens from backend metadata, model suffix, or default."""
+    explicit_value = item.get("maxInputTokens") or item.get("context_length")
+    if explicit_value:
+        return int(explicit_value)
+
+    suffix_value = _parse_context_length_from_model_id(raw_model_id)
+    if suffix_value:
+        return suffix_value
+
+    return 200000
+
+
 async def _build_backend_model_items(prefix_custom: bool = False) -> list[dict]:
     """Build Kiro-compatible model items from backend OpenAI /models."""
     backend_models = await fetch_backend_models()
@@ -112,7 +143,7 @@ async def _build_backend_model_items(prefix_custom: bool = False) -> list[dict]:
             "supportedInputTypes": item.get("supportedInputTypes") or ["TEXT", "IMAGE"],
             "promptCaching": item.get("promptCaching") or {"supportsPromptCaching": False},
             "tokenLimits": {
-                "maxInputTokens": item.get("maxInputTokens") or item.get("context_length") or 200000,
+                "maxInputTokens": _get_backend_model_context_length(item, raw_model_id),
                 "maxOutputTokens": item.get("maxOutputTokens") or 8192,
             },
         })
