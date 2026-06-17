@@ -681,6 +681,7 @@ async def _handle_openai_mode(request: Request, request_data: KiroRequest) -> St
             async for chunk in convert_openai_stream_to_kiro(
                 backend_response,
                 model_name=model_id,
+                max_context_tokens=_parse_context_length_from_model_id(model_id) or 200000,
             ):
                 out_chunks.append(chunk)
                 yield chunk

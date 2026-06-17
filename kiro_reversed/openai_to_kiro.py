@@ -210,6 +210,7 @@ def normalize_tool_arguments_for_kiro(tool_name: str, arguments_str: str) -> str
 async def convert_openai_stream_to_kiro(
     response: httpx.Response,
     model_name: str,
+    max_context_tokens: int = 200000,
 ) -> AsyncGenerator[bytes, None]:
     """
     将 OpenAI SSE 流式响应转换为 Kiro Event Stream。
@@ -217,6 +218,7 @@ async def convert_openai_stream_to_kiro(
     Args:
         response: httpx 流式响应
         model_name: 模型名称（用于日志）
+        max_context_tokens: 模型最大上下文 token 数，用于计算 contextUsagePercentage
 
     Yields:
         编码后的 Kiro Event Stream 字节块
@@ -258,7 +260,7 @@ async def convert_openai_stream_to_kiro(
                     # === 发送 trailer 事件 (Kiro 真实 API 在工具调用后必发) ===
                     yield make_content_event("", model_id=model_name)
                     if final_total_tokens > 0:
-                        context_pct = final_prompt_tokens / 200000.0 * 100.0
+                        context_pct = final_prompt_tokens / max_context_tokens * 100.0
                         yield make_context_usage_event(context_pct)
                     if final_completion_tokens > 0:
                         yield make_usage_event(usage=1)
@@ -368,7 +370,7 @@ async def convert_openai_stream_to_kiro(
                     # === 发送 trailer 事件 (Kiro 真实 API 在 finish_reason 后也发) ===
                     yield make_content_event("", model_id=model_name)
                     if final_total_tokens > 0:
-                        context_pct = final_prompt_tokens / 200000.0 * 100.0
+                        context_pct = final_prompt_tokens / max_context_tokens * 100.0
                         yield make_context_usage_event(context_pct)
                     if final_completion_tokens > 0:
                         yield make_usage_event(usage=1)
