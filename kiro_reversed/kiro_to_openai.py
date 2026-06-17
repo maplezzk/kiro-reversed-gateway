@@ -281,6 +281,29 @@ def convert_kiro_to_openai(request: KiroRequest) -> Dict[str, Any]:
     elif not (ctx and ctx.toolResults):
         messages.append({"role": "user", "content": user_content})
 
+    # --- 检测 "understood" 模式并注入破除指令 ---
+    understood_count = sum(
+        1 for msg in messages
+        if msg.get("role") == "assistant"
+        and msg.get("content", "").strip().lower() in (
+            "understood", "understood.",
+            "i will follow these instructions.\n\nunderstood.",
+        )
+        and not msg.get("tool_calls")
+    )
+    if understood_count >= 2:
+        # 找到最后一条 user 消息，追加破除指令
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].get("role") == "user":
+                content = messages[i].get("content", "")
+                if isinstance(content, str):
+                    messages[i]["content"] = content + "\n\n[IMPORTANT: Do not reply with just 'understood'. Execute the next action immediately.]"
+                elif isinstance(content, list):
+                    # multimodal content: append text part
+                    messages[i]["content"].append({"type": "text", "text": "\n\n[IMPORTANT: Do not reply with just 'understood'. Execute the next action immediately.]"})
+                break
+        logger.info(f"检测到 {understood_count} 条 'understood' 模式，已注入破除指令")
+
     # --- 压缩连续同角色消息 ---
     messages = _merge_consecutive_same_role(messages)
 
