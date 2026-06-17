@@ -781,6 +781,24 @@ async def catch_all(request: Request, path: str):
         except Exception as e:
             logger.error(f"x-amz-target 获取 models 失败: {e}")
             raise HTTPException(status_code=502, detail=f"获取 models 失败: {e}")
+
+    # Kiro 1.0.0 改用 KiroRuntimeService.GenerateAssistantResponse
+    if "GenerateAssistantResponse" in amz_target:
+        if MODE == "forward":
+            return await _handle_forward_mode(request)
+        try:
+            request_data = KiroRequest.model_validate(await request.json())
+        except Exception as e:
+            logger.warning(f"Kiro 1.0 请求解析失败: {e}")
+            raise HTTPException(status_code=400, detail=f"Kiro 请求解析失败: {e}")
+        if MODE == "hybrid":
+            model_id = request_data.conversationState.currentMessage.userInputMessage.modelId
+            if model_id.startswith(CUSTOM_MODEL_PREFIX):
+                logger.info(f"[HYBRID 1.0] custom model -> OpenAI backend: {model_id}")
+                return await _handle_openai_mode(request, request_data)
+            logger.info(f"[HYBRID 1.0] official model -> Kiro forward: {model_id}")
+            return await _handle_forward_mode(request)
+        return await _handle_openai_mode(request, request_data)
     if "GetUsageLimits" in amz_target:
         if MODE in ("forward", "hybrid"):
             return await _handle_forward_mode(request)
